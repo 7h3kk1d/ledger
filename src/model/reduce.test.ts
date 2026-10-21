@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { currentEvents, dayRange, habitDoneOn, habitStreak, localDate, monthGrid } from "./reduce";
+import {
+  bestStreak,
+  currentEvents,
+  dayRange,
+  doneIndex,
+  habitDoneOn,
+  habitStreak,
+  localDate,
+  monthGrid,
+  shiftDate,
+} from "./reduce";
 import type { Event, Habit } from "./types";
 
 const ev = (id: string, over: Partial<Event> = {}): Event => ({
@@ -98,5 +108,28 @@ describe("habitDoneOn", () => {
     ).toBe(false);
     const undone = docOf(ev("a"), ev("x", { amends: "a", deleted: true }));
     expect(habitDoneOn(undone, habit, "2026-10-21")).toBe(false);
+  });
+});
+
+describe("bestStreak", () => {
+  const day = (id: string, date: string) => ev(id, { occurred: { kind: "day", date } });
+  it("finds the longest run, across month boundaries", () => {
+    const d = docOf(
+      day("a", "2026-09-29"), day("b", "2026-09-30"), day("c", "2026-10-01"),
+      day("d", "2026-10-05"), day("e", "2026-10-06"),
+    );
+    expect(bestStreak(doneIndex(d), habit)).toBe(3);
+  });
+  it("is zero with no events", () => {
+    expect(bestStreak(doneIndex(docOf()), habit)).toBe(0);
+  });
+});
+
+describe("shiftDate", () => {
+  it("moves forward and back across month and year ends", () => {
+    expect(shiftDate("2026-10-31", 1)).toBe("2026-11-01");
+    expect(shiftDate("2026-03-01", -1)).toBe("2026-02-28");
+    expect(shiftDate("2026-12-28", 7)).toBe("2027-01-04");
+    expect(shiftDate("2026-10-21", 0)).toBe("2026-10-21");
   });
 });

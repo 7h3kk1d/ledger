@@ -1,10 +1,13 @@
 import { useState } from "preact/hooks";
 import type { DocHandle } from "@automerge/automerge-repo";
 import type { Attrs, Event, LedgerDoc, Occurred } from "../../model/types";
-import { currentEvents, localDate, occurredDate } from "../../model/reduce";
+import { currentEvents, habitHue, hashHue, localDate, occurredDate, shiftDate } from "../../model/reduce";
 import { createEventType, logEvent } from "../../store/store";
 import { useDoc } from "../../store/useDoc";
+import { useToday } from "../hooks";
 import { Modal } from "../Modal";
+
+const PAGE_DAYS = 30;
 
 type View = "timeline" | "table";
 
@@ -23,7 +26,6 @@ function parseAttrs(text: string): Attrs {
   }
   return out;
 }
-const hue = (s: string) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
 
 export function Events({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const doc = useDoc(handle);
@@ -31,12 +33,21 @@ export function Events({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const [showRaw, setShowRaw] = useState(false);
   const [filter, setFilter] = useState("");
   const [logging, setLogging] = useState(false);
+  const [pages, setPages] = useState(1);
+  const today = useToday();
+  const since = shiftDate(today, -PAGE_DAYS * pages + 1);
 
   const types = Object.values(doc.eventTypes);
   const typeName = (id: string) => doc.eventTypes[id]?.name ?? id;
+  // event types paired with a habit share its colour
+  const typeHue = new Map<string, number>();
+  for (const h of Object.values(doc.habits)) for (const t of h.eventTypeIds) typeHue.set(t, habitHue(h));
+  const hue = (typeId: string) => typeHue.get(typeId) ?? hashHue(typeId);
   const raw = showRaw && view === "table";
-  const rows = (raw ? Object.values(doc.events) : currentEvents(doc))
-    .filter((e) => !filter || e.typeId === filter)
+  const matching = (raw ? Object.values(doc.events) : currentEvents(doc))
+    .filter((e) => !filter || e.typeId === filter);
+  const rows = matching
+    .filter((e) => occurredDate(e.occurred) >= since)
     .sort((a, b) => sortKey(b.occurred).localeCompare(sortKey(a.occurred)));
 
   const byDay = new Map<string, Event[]>();
@@ -70,7 +81,9 @@ export function Events({ handle }: { handle: DocHandle<LedgerDoc> }) {
         <button class="primary" onClick={() => setLogging(true)}>+ Log event</button>
       </div>
 
-      {rows.length === 0 && <p class="empty">No events yet.</p>}
+      {rows.length === 0 && (
+        <p class="empty">{matching.length ? `No events in the last ${PAGE_DAYS * pages} days.` : "No events yet."}</p>
+      )}
 
       {view === "timeline" ? (
         <div class="timeline">
@@ -108,6 +121,12 @@ export function Events({ handle }: { handle: DocHandle<LedgerDoc> }) {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {matching.length > rows.length && (
+        <div class="more">
+          <button onClick={() => setPages(pages + 1)}>Show older ({matching.length - rows.length} more)</button>
         </div>
       )}
 
@@ -155,7 +174,7 @@ function EventForm(props: {
         }}
       >
         <label>Type
-          <select value={typeId} onChange={(e) => setTypeId(e.currentTarget.value)}>
+          <select autofocus value={typeId} onChange={(e) => setTypeId(e.currentTarget.value)}>
             {props.types.map((t) => <option value={t.id}>{t.name}</option>)}
             <option value={NEW}>+ New type…</option>
           </select>

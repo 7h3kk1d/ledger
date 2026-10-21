@@ -9,7 +9,7 @@ import {
   type Occurred,
 } from "../model/types";
 
-import { habitEventsOn, localDate } from "../model/reduce";
+import { activeHabits, habitEventsOn, habitHue, HUES, localDate } from "../model/reduce";
 // Optional, gitignored (src/seed.local.ts exports SEED_HABITS: string[]).
 const localSeed = import.meta.glob<{ SEED_HABITS: string[] }>("../seed.local.ts", { eager: true });
 const SEED_HABITS = Object.values(localSeed)[0]?.SEED_HABITS ?? [];
@@ -22,10 +22,16 @@ export const newId = () => crypto.randomUUID();
 
 export const repo = new Repo({ storage: new IndexedDBStorageAdapter("ledger") });
 
+/** Open the active doc. Rejects if the stored doc can't be loaded. */
 export async function openHandle(): Promise<DocHandle<LedgerDoc>> {
   const known = localStorage.getItem(URL_KEY) as AutomergeUrl | null;
-  if (known) return repo.find<LedgerDoc>(known);
+  if (known) return repo.find<LedgerDoc>(known, { signal: AbortSignal.timeout(10_000) });
   return newSeededDoc();
+}
+
+/** Forget the active doc so the next load starts from the seed (old data stays in IndexedDB). */
+export function forgetActiveDoc(): void {
+  localStorage.removeItem(URL_KEY);
 }
 
 /** Create a fresh doc with the seed habits and make it the active one. */
@@ -36,9 +42,22 @@ function newSeededDoc(): DocHandle<LedgerDoc> {
   return handle;
 }
 
-/** Abandon the current doc (left in IndexedDB) and start over from the seed. */
-export function resetToSeed(): void {
-  newSeededDoc();
+/** Delete the current doc and start over from the seed. */
+export async function resetToSeed(current: DocHandle<LedgerDoc>): Promise<void> {
+  const next = newSeededDoc();
+  // must reach IndexedDB before the caller reloads the page
+  await repo.flush([next.documentId]);
+  repo.delete(current.documentId);
+  await repo.flush();
+}
+
+/**
+ * Ask the browser not to evict our storage. Safari otherwise clears site data
+ * after 7 days without a visit unless the app is installed to the home screen.
+ */
+export async function requestPersistentStorage(): Promise<boolean> {
+  if (!navigator.storage?.persist) return false;
+  return (await navigator.storage.persisted()) || navigator.storage.persist();
 }
 
 export interface NewEvent {
@@ -57,28 +76,6 @@ export function logEvent(h: DocHandle<LedgerDoc>, e: NewEvent): string {
     loggedAt: new Date().toISOString(),
     occurred: e.occurred,
     attrs: e.attrs ?? {},
-  };
-  h.change((d) => {
-    d.events[id] = event;
-  });
-  return id;
-}
-
-/** Edit = append a replacement that amends the original. */
-export function amendEvent(
-  h: DocHandle<LedgerDoc>,
-  targetId: string,
-  e: NewEvent,
-): string {
-  const id = newId();
-  const event: Event = {
-    id,
-    typeId: e.typeId,
-    author: LOCAL_AUTHOR,
-    loggedAt: new Date().toISOString(),
-    occurred: e.occurred,
-    attrs: e.attrs ?? {},
-    amends: targetId,
   };
   h.change((d) => {
     d.events[id] = event;
@@ -115,11 +112,11 @@ export function tombstoneEvent(
  */
 export function toggleHabit(
   h: DocHandle<LedgerDoc>,
-  doc: LedgerDoc,
   habit: Habit,
   date: string,
 ): void {
-  const existing = habitEventsOn(doc, habit, date);
+  // read the live doc, not a render snapshot, so quick repeat taps stay correct
+  const existing = habitEventsOn(h.doc() as LedgerDoc, habit, date);
   if (existing.length) {
     for (const e of existing) tombstoneEvent(h, e);
     return;
@@ -152,7 +149,12 @@ export function createDailyHabit(h: DocHandle<LedgerDoc>, name: string): string 
     expectation: { kind: "daily" },
   };
   h.change((d) => {
-    d.habits[id] = habit;
+    const existing = Object.values(d.habits);
+    const orders = existing.map((x) => x.order ?? 0);
+    // least-used palette colour, so habits stay distinguishable
+    const used = existing.filter((x) => !x.archived).map(habitHue);
+    const hue = [...HUES].sort((a, b) => used.filter((u) => u === a).length - used.filter((u) => u === b).length)[0]!;
+    d.habits[id] = { ...habit, order: Math.max(0, ...orders) + 1, hue };
   });
   return id;
 }
@@ -165,8 +167,10 @@ export async function exportBackup(h: DocHandle<LedgerDoc>): Promise<Uint8Array>
 }
 
 /** Import a backup as a new doc and switch to it (reload to pick up). */
-export function importBackup(bytes: Uint8Array): void {
+export async function importBackup(bytes: Uint8Array): Promise<void> {
   const h = repo.import<LedgerDoc>(bytes);
+  // must reach IndexedDB before the caller reloads the page
+  await repo.flush([h.documentId]);
   localStorage.setItem(URL_KEY, h.url);
 }
 
@@ -190,5 +194,31 @@ export function setHabitArchived(h: DocHandle<LedgerDoc>, habitId: string, archi
     if (!habit) return;
     if (archived) habit.archived = true;
     else delete habit.archived;
+  });
+}
+
+export function setHabitHue(h: DocHandle<LedgerDoc>, habitId: string, hue: number): void {
+  h.change((d) => {
+    const habit = d.habits[habitId];
+    if (habit) habit.hue = hue;
+  });
+}
+
+/** Swap a habit with its neighbour in display order (dir -1 = up, 1 = down). */
+export function moveHabit(h: DocHandle<LedgerDoc>, habitId: string, dir: -1 | 1): void {
+  h.change((d) => {
+    const list = activeHabits(d);
+    const i = list.findIndex((x) => x.id === habitId);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= list.length) return;
+    // renumber so habits without an order get one; pin colours first, since
+    // an unset hue is derived from the order
+    list.forEach((x, k) => {
+      const habit = d.habits[x.id]!;
+      if (habit.hue === undefined) habit.hue = habitHue(x);
+      habit.order = k + 1;
+    });
+    d.habits[list[i]!.id]!.order = j + 1;
+    d.habits[list[j]!.id]!.order = i + 1;
   });
 }

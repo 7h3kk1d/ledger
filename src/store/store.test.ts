@@ -3,7 +3,15 @@ import { describe, expect, it } from "vitest";
 import { Repo, type DocHandle } from "@automerge/automerge-repo";
 import { activeHabits, currentEvents, habitDoneOn } from "../model/reduce";
 import type { LedgerDoc } from "../model/types";
-import { amendEvent, createDailyHabit, logEvent, renameHabit, setHabitArchived, tombstoneEvent } from "./store";
+import {
+  createDailyHabit,
+  logEvent,
+  moveHabit,
+  renameHabit,
+  setHabitArchived,
+  toggleHabit,
+  tombstoneEvent,
+} from "./store";
 
 const doc = (h: DocHandle<LedgerDoc>) => h.doc() as LedgerDoc;
 const newHandle = () =>
@@ -27,17 +35,6 @@ describe("store mutations", () => {
     expect(doc(h).events[id]).toBeDefined(); // original stays in the raw log
   });
 
-  it("amends an event, leaving the original in the log", () => {
-    const h = newHandle();
-    const id = logEvent(h, { typeId: "t", occurred: { kind: "day", date: "2026-10-21" } });
-    const next = amendEvent(h, id, {
-      typeId: "t",
-      occurred: { kind: "day", date: "2026-10-20" },
-      attrs: { note: "x" },
-    });
-    expect(currentEvents(doc(h)).map((e) => e.id)).toEqual([next]);
-    expect(Object.keys(doc(h).events)).toHaveLength(2);
-  });
 });
 
 describe("habit management", () => {
@@ -62,5 +59,41 @@ describe("habit management", () => {
     expect(currentEvents(doc(h))).toHaveLength(1);
     setHabitArchived(h, habitId, false);
     expect(activeHabits(doc(h)).map((x) => x.id)).toEqual([habitId]);
+  });
+});
+
+describe("toggleHabit", () => {
+  it("unchecks on a second tap even when called with no re-render between", () => {
+    const h = newHandle();
+    const id = createDailyHabit(h, "Stretch");
+    const habit = doc(h).habits[id]!;
+    toggleHabit(h, habit, "2026-10-20");
+    toggleHabit(h, habit, "2026-10-20");
+    expect(habitDoneOn(doc(h), habit, "2026-10-20")).toBe(false);
+  });
+});
+
+describe("habit order", () => {
+  it("appends new habits and swaps on move", () => {
+    const h = newHandle();
+    const a = createDailyHabit(h, "B first");
+    const b = createDailyHabit(h, "A second");
+    expect(activeHabits(doc(h)).map((x) => x.id)).toEqual([a, b]);
+    moveHabit(h, b, -1);
+    expect(activeHabits(doc(h)).map((x) => x.id)).toEqual([b, a]);
+    moveHabit(h, b, -1); // already first: no-op
+    expect(activeHabits(doc(h)).map((x) => x.id)).toEqual([b, a]);
+  });
+});
+
+describe("habit colours", () => {
+  it("gives new habits distinct colours and keeps them across reorder", () => {
+    const h = newHandle();
+    const ids = ["A", "B", "C"].map((n) => createDailyHabit(h, n));
+    const hues = () => ids.map((id) => doc(h).habits[id]!.hue);
+    const before = hues();
+    expect(new Set(before).size).toBe(3);
+    moveHabit(h, ids[2]!, -1);
+    expect(hues()).toEqual(before);
   });
 });

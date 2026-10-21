@@ -18,6 +18,12 @@ pnpm build
 - Whole-day vs exact occurrence times; day boundary is local midnight to midnight.
 - No schema versioning: clients are only the owner's devices, so breaking changes are fixed one-off.
 - **Backup:** use Export in the UI; the doc lives only in browser IndexedDB in v1.
+- **Install it on your phone.** Safari clears site storage after 7 days without a visit unless the
+  app is on the home screen (Share → Add to Home Screen). The app also requests persistent storage.
+  The service worker that makes it work offline is registered in production builds only, so dev
+  never serves cached modules.
+- **Seed habits:** optional, gitignored `src/seed.local.ts` exporting `SEED_HABITS: string[]`;
+  used for a fresh store and by "Reset to seed" in the ⋯ menu.
 
 ## Out of scope for v1
 

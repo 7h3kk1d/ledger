@@ -29,6 +29,10 @@ export interface Habit {
   expectation: { kind: "daily" };
   /** Hidden from the tracker; history is kept. */
   archived?: true;
+  /** Display position; lower first. */
+  order?: number;
+  /** Accent colour hue (0-360); derived from the id when unset. */
+  hue?: number;
 }
 
 export interface LedgerDoc {
