@@ -3,3 +3,5 @@ dist
 .direnv
 *.local
 *.local.ts
+public/config.json
+.sync-data

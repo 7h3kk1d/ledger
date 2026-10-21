@@ -1,0 +1,5 @@
+allowBuilds:
+  # tsx's bundler; its install script only checks the platform binary
+  esbuild: true
+  # optional native speedup for cbor-x (pulled in by the sync server); the JS fallback is fine
+  cbor-extract: false

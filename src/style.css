@@ -64,6 +64,7 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 button.ghost { background: none; border-color: transparent; padding: .3rem .6rem; color: var(--muted); font-size: 1.1rem; }
 button.ghost:hover:not(:disabled) { color: var(--text); border-color: var(--border); }
 button.danger { color: var(--danger); }
+button.primary.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 input, select, textarea {
   color: var(--text);
   background: var(--surface);
@@ -105,6 +106,12 @@ label.check input { width: auto; }
   width: 15rem; box-shadow: 0 10px 30px #0003;
 }
 .menu-note { margin: .2rem 0 0; font-size: .8rem; color: var(--muted); }
+.sync { width: .55rem; height: .55rem; border-radius: 50%; background: var(--muted); opacity: .5; flex: none; }
+.sync.on { background: hsl(150 55% 45%); opacity: 1; }
+.previous { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .3rem; }
+.previous li { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .35rem 0; border-bottom: 1px solid var(--border); }
+.previous li:last-child { border-bottom: none; }
+.previous button { font-size: .9rem; }
 
 /* phones: tabs become a bottom bar */
 @media (max-width: 520px) {

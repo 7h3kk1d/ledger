@@ -11,7 +11,7 @@ import {
   setHabitArchived,
   toggleHabit,
   tombstoneEvent,
-} from "./store";
+} from "./mutations";
 
 const doc = (h: DocHandle<LedgerDoc>) => h.doc() as LedgerDoc;
 const newHandle = () =>

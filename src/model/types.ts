@@ -42,3 +42,29 @@ export interface LedgerDoc {
 }
 
 export const LOCAL_AUTHOR = "local";
+
+/**
+ * Bump on a breaking schema change. Clients that find an older epoch in the
+ * root doc start a fresh ledger doc (habit names carried over) instead of
+ * migrating; the old doc is kept in the root's history.
+ */
+export const DATA_EPOCH = 1;
+
+/** Why the root moved to another ledger doc. */
+export type RootReason = "reset" | "epoch" | "import" | "switch";
+
+export interface RootEntry {
+  url: string;
+  epoch: number;
+  /** ISO timestamp of when this doc stopped being current. */
+  at: string;
+  reason: RootReason;
+}
+
+/** Points every device at the ledger doc in use. */
+export interface RootDoc {
+  current: string; // automerge url of the live LedgerDoc
+  epoch: number;
+  /** Docs that used to be current, oldest first. Never deleted. */
+  history: RootEntry[];
+}

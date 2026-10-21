@@ -18,6 +18,9 @@ self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET" || new URL(req.url).origin !== location.origin) return;
 
+  // the app caches the config itself; the newest one must win when online
+  if (new URL(req.url).pathname === "/config.json") return;
+
   if (req.mode === "navigate") {
     e.respondWith(
       fetch(req)
