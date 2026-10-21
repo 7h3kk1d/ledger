@@ -3,7 +3,7 @@ import { Repo, type AutomergeUrl, type DocHandle } from "@automerge/automerge-re
 import { activeHabits, habitHue } from "../model/reduce";
 import { DATA_EPOCH, type RootDoc } from "../model/types";
 import { createLedger, createRoot, habitSeed, previousDocs, rollover, switchTo } from "./root";
-import { setHabitArchived, toggleHabit } from "./mutations";
+import { setHabitArchived, setHabitExpectation, toggleHabit } from "./mutations";
 
 const doc = <T,>(h: DocHandle<T>) => h.doc() as T;
 
@@ -37,6 +37,19 @@ describe("root doc", () => {
     expect(doc(root).current).toBe(next.url);
     expect(doc(root).history).toMatchObject([{ url: ledger.url, epoch: DATA_EPOCH, reason: "reset" }]);
     expect(Object.keys(doc(ledger).events)).toHaveLength(1); // untouched
+  });
+
+  it("reset keeps each habit's schedule", () => {
+    const { repo, ledger, root } = setup();
+    const [floss, anki] = activeHabits(doc(ledger));
+    setHabitExpectation(ledger, floss!.id, { kind: "weekdays", days: [1, 3] });
+    setHabitExpectation(ledger, anki!.id, { kind: "perWeek", times: 4 });
+    const next = rollover(repo, root, habitSeed(doc(ledger)), "reset");
+    expect(activeHabits(doc(next)).map((h) => h.expectation)).toEqual([
+      { kind: "weekdays", days: [1, 3] },
+      { kind: "perWeek", times: 4 },
+      { kind: "daily" },
+    ]);
   });
 
   it("an epoch rollover keeps names only", () => {

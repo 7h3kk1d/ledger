@@ -4,11 +4,13 @@
 import type { AutomergeUrl, DocHandle, Repo } from "@automerge/automerge-repo";
 import { activeHabits, habitHue } from "../model/reduce";
 import { DATA_EPOCH, type LedgerDoc, type RootDoc, type RootReason } from "../model/types";
-import { createDailyHabit, setHabitHue } from "./mutations";
+import type { Expectation } from "../model/types";
+import { createHabit, setHabitHue } from "./mutations";
 
 export interface SeedHabit {
   name: string;
   hue?: number;
+  expectation?: Expectation;
 }
 
 const emptyLedger = (): LedgerDoc => ({ eventTypes: {}, habits: {}, events: {} });
@@ -17,7 +19,7 @@ const emptyLedger = (): LedgerDoc => ({ eventTypes: {}, habits: {}, events: {} }
 export function createLedger(repo: Repo, habits: SeedHabit[]): DocHandle<LedgerDoc> {
   const h = repo.create<LedgerDoc>(emptyLedger());
   for (const s of habits) {
-    const id = createDailyHabit(h, s.name);
+    const id = createHabit(h, s.name, s.expectation);
     if (s.hue !== undefined) setHabitHue(h, id, s.hue);
   }
   return h;
@@ -28,7 +30,9 @@ export function createLedger(repo: Repo, habits: SeedHabit[]): DocHandle<LedgerD
  * epoch rollover, where the old doc's other fields may not mean the same thing.
  */
 export function habitSeed(doc: LedgerDoc, namesOnly = false): SeedHabit[] {
-  return activeHabits(doc).map((h) => (namesOnly ? { name: h.name } : { name: h.name, hue: habitHue(h) }));
+  return activeHabits(doc).map((h) =>
+    namesOnly ? { name: h.name } : { name: h.name, hue: habitHue(h), expectation: h.expectation },
+  );
 }
 
 export function createRoot(repo: Repo, ledger: DocHandle<LedgerDoc>): DocHandle<RootDoc> {

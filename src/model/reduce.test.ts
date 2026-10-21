@@ -1,15 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
-  bestStreak,
   currentEvents,
   dayRange,
   doneIndex,
   habitDoneOn,
-  habitStreak,
   localDate,
   monthGrid,
   shiftDate,
 } from "./reduce";
+import { bestStreak, habitStreak } from "./schedule";
 import type { Event, Habit } from "./types";
 
 const ev = (id: string, over: Partial<Event> = {}): Event => ({
@@ -79,16 +78,16 @@ describe("dayRange / habitStreak", () => {
   });
   it("counts consecutive days ending today", () => {
     const d = docOf(day("a", "2026-10-19"), day("b", "2026-10-20"), day("c", "2026-10-21"));
-    expect(habitStreak(d, habit, "2026-10-21")).toBe(3);
+    expect(habitStreak(doneIndex(d), habit, "2026-10-21")).toBe(3);
   });
   it("keeps the streak alive when today isn't done yet", () => {
     const d = docOf(day("a", "2026-10-19"), day("b", "2026-10-20"));
-    expect(habitStreak(d, habit, "2026-10-21")).toBe(2);
+    expect(habitStreak(doneIndex(d), habit, "2026-10-21")).toBe(2);
   });
   it("breaks on a gap", () => {
     const d = docOf(day("a", "2026-10-18"), day("c", "2026-10-21"));
-    expect(habitStreak(d, habit, "2026-10-21")).toBe(1);
-    expect(habitStreak(docOf(day("a", "2026-10-18")), habit, "2026-10-21")).toBe(0);
+    expect(habitStreak(doneIndex(d), habit, "2026-10-21")).toBe(1);
+    expect(habitStreak(doneIndex(docOf(day("a", "2026-10-18"))), habit, "2026-10-21")).toBe(0);
   });
 });
 

@@ -3,14 +3,13 @@ import type { DocHandle } from "@automerge/automerge-repo";
 import type { LedgerDoc } from "../../model/types";
 import {
   activeHabits,
-  bestStreak,
   doneIndex,
   habitHue,
-  habitStreak,
   isDone,
   localDate,
   monthGrid,
 } from "../../model/reduce";
+import { bestStreak, habitStreak, isScheduled, streakUnit } from "../../model/schedule";
 import { toggleHabit } from "../../store/store";
 import { useDoc } from "../../store/useDoc";
 import { useToday } from "../hooks";
@@ -42,6 +41,11 @@ export function Calendar({ handle }: { handle: DocHandle<LedgerDoc> }) {
   // days of this month that have happened so far
   const elapsed = days.filter((d) => d.startsWith(month) && d <= today);
   const monthDone = habit ? elapsed.filter((d) => isDone(idx, habit, d)).length : 0;
+  // a share of the days it was expected on, for habits tied to days
+  const dayBased = habit?.expectation.kind === "daily" || habit?.expectation.kind === "weekdays";
+  const expected = habit ? elapsed.filter((d) => isScheduled(habit, d)) : [];
+  const expectedDone = habit ? expected.filter((d) => isDone(idx, habit, d)).length : 0;
+  const unit = habit ? streakUnit(habit.expectation) : "";
 
   const onDay = (date: string) => {
     if (date > today) return;
@@ -65,9 +69,13 @@ export function Calendar({ handle }: { handle: DocHandle<LedgerDoc> }) {
 
       {habit && (
         <div class="stats" style={{ "--h": habitHue(habit) }}>
-          <div><strong>{elapsed.length ? Math.round((100 * monthDone) / elapsed.length) : 0}%</strong><small>this month ({monthDone}/{elapsed.length})</small></div>
-          <div><strong>{habitStreak(idx, habit, today)}</strong><small>current streak</small></div>
-          <div><strong>{bestStreak(idx, habit)}</strong><small>best streak</small></div>
+          {dayBased ? (
+            <div><strong>{expected.length ? Math.round((100 * expectedDone) / expected.length) : 0}%</strong><small>this month ({expectedDone}/{expected.length})</small></div>
+          ) : (
+            <div><strong>{monthDone}</strong><small>done this month</small></div>
+          )}
+          <div><strong>{habitStreak(idx, habit, today)}{unit}</strong><small>current streak</small></div>
+          <div><strong>{bestStreak(idx, habit)}{unit}</strong><small>best streak</small></div>
         </div>
       )}
 

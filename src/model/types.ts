@@ -22,11 +22,23 @@ export interface EventType {
   name: string;
 }
 
+/** How often a habit is meant to be done. */
+export type Expectation =
+  | { kind: "daily" }
+  /** Only on these days of the week (0 = Sunday). */
+  | { kind: "weekdays"; days: number[] }
+  /** Again `days` days after the last time. */
+  | { kind: "every"; days: number }
+  /** `times` days in each Sunday-to-Saturday week. */
+  | { kind: "perWeek"; times: number }
+  /** `times` days in each calendar month. */
+  | { kind: "perMonth"; times: number };
+
 export interface Habit {
   id: string;
   name: string;
   eventTypeIds: string[];
-  expectation: { kind: "daily" };
+  expectation: Expectation;
   /** Hidden from the tracker; history is kept. */
   archived?: true;
   /** Display position; lower first. */

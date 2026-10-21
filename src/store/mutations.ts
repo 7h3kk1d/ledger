@@ -5,11 +5,13 @@ import {
   LOCAL_AUTHOR,
   type Attrs,
   type Event,
+  type Expectation,
   type Habit,
   type LedgerDoc,
   type Occurred,
 } from "../model/types";
 import { activeHabits, habitEventsOn, habitHue, HUES, localDate } from "../model/reduce";
+import { DAILY } from "../model/schedule";
 
 export const newId = () => crypto.randomUUID();
 
@@ -92,14 +94,14 @@ export function createEventType(h: DocHandle<LedgerDoc>, name: string): string {
 }
 
 /** Daily habits pair 1:1 with an event type of the same name. */
-export function createDailyHabit(h: DocHandle<LedgerDoc>, name: string): string {
+export function createHabit(h: DocHandle<LedgerDoc>, name: string, expectation: Expectation = DAILY): string {
   const typeId = createEventType(h, name);
   const id = newId();
   const habit: Habit = {
     id,
     name,
     eventTypeIds: [typeId],
-    expectation: { kind: "daily" },
+    expectation: copyExpectation(expectation),
   };
   h.change((d) => {
     const existing = Object.values(d.habits);
@@ -110,6 +112,17 @@ export function createDailyHabit(h: DocHandle<LedgerDoc>, name: string): string 
     d.habits[id] = { ...habit, order: Math.max(0, ...orders) + 1, hue };
   });
   return id;
+}
+
+/** A plain copy, so a value read from one doc can be written into another. */
+const copyExpectation = (e: Expectation): Expectation =>
+  e.kind === "weekdays" ? { kind: e.kind, days: [...e.days] } : ({ ...e } as Expectation);
+
+export function setHabitExpectation(h: DocHandle<LedgerDoc>, habitId: string, expectation: Expectation): void {
+  h.change((d) => {
+    const habit = d.habits[habitId];
+    if (habit) habit.expectation = copyExpectation(expectation);
+  });
 }
 
 /** Rename a habit and its paired event types so the Events views stay consistent. */

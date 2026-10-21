@@ -4,7 +4,7 @@ import { Repo, type DocHandle } from "@automerge/automerge-repo";
 import { activeHabits, currentEvents, habitDoneOn } from "../model/reduce";
 import type { LedgerDoc } from "../model/types";
 import {
-  createDailyHabit,
+  createHabit,
   logEvent,
   moveHabit,
   renameHabit,
@@ -20,7 +20,7 @@ const newHandle = () =>
 describe("store mutations", () => {
   it("tombstones an event read straight from the doc", () => {
     const h = newHandle();
-    const habitId = createDailyHabit(h, "Stretch");
+    const habitId = createHabit(h, "Stretch");
     const habit = doc(h).habits[habitId]!;
     const id = logEvent(h, {
       typeId: habit.eventTypeIds[0]!,
@@ -40,7 +40,7 @@ describe("store mutations", () => {
 describe("habit management", () => {
   it("renames a habit and its event type, keeping history", () => {
     const h = newHandle();
-    const habitId = createDailyHabit(h, "Strech");
+    const habitId = createHabit(h, "Strech");
     const typeId = doc(h).habits[habitId]!.eventTypeIds[0]!;
     logEvent(h, { typeId, occurred: { kind: "day", date: "2026-10-21" } });
     renameHabit(h, habitId, "Stretch");
@@ -51,7 +51,7 @@ describe("habit management", () => {
 
   it("archives and restores without losing events", () => {
     const h = newHandle();
-    const habitId = createDailyHabit(h, "Stretch");
+    const habitId = createHabit(h, "Stretch");
     const typeId = doc(h).habits[habitId]!.eventTypeIds[0]!;
     logEvent(h, { typeId, occurred: { kind: "day", date: "2026-10-21" } });
     setHabitArchived(h, habitId, true);
@@ -65,7 +65,7 @@ describe("habit management", () => {
 describe("toggleHabit", () => {
   it("unchecks on a second tap even when called with no re-render between", () => {
     const h = newHandle();
-    const id = createDailyHabit(h, "Stretch");
+    const id = createHabit(h, "Stretch");
     const habit = doc(h).habits[id]!;
     toggleHabit(h, habit, "2026-10-20");
     toggleHabit(h, habit, "2026-10-20");
@@ -76,7 +76,7 @@ describe("toggleHabit", () => {
 describe("habit order", () => {
   it("appends new habits and moves them to a position", () => {
     const h = newHandle();
-    const [a, b, c, d] = ["B first", "A second", "C", "D"].map((n) => createDailyHabit(h, n));
+    const [a, b, c, d] = ["B first", "A second", "C", "D"].map((n) => createHabit(h, n));
     const order = () => activeHabits(doc(h)).map((x) => x.id);
     expect(order()).toEqual([a, b, c, d]);
     moveHabit(h, d!, 1);
@@ -93,7 +93,7 @@ describe("habit order", () => {
 describe("habit colours", () => {
   it("gives new habits distinct colours and keeps them across reorder", () => {
     const h = newHandle();
-    const ids = ["A", "B", "C"].map((n) => createDailyHabit(h, n));
+    const ids = ["A", "B", "C"].map((n) => createHabit(h, n));
     const hues = () => ids.map((id) => doc(h).habits[id]!.hue);
     const before = hues();
     expect(new Set(before).size).toBe(3);

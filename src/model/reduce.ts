@@ -83,39 +83,6 @@ export function doneDates(idx: DoneIndex, habit: Habit): string[] {
   return [...all].sort();
 }
 
-/**
- * Consecutive done days ending today. A not-yet-done today doesn't break
- * the streak, so it counts back from yesterday in that case.
- */
-export function habitStreak(
-  doc: Pick<LedgerDoc, "events"> | DoneIndex,
-  habit: Habit,
-  today: string,
-): number {
-  const idx = doc instanceof Map ? doc : doneIndex(doc);
-  let day = isDone(idx, habit, today) ? today : shiftDate(today, -1);
-  let n = 0;
-  while (isDone(idx, habit, day)) {
-    n++;
-    day = shiftDate(day, -1);
-  }
-  return n;
-}
-
-/** Longest run of consecutive done days ever. */
-export function bestStreak(idx: DoneIndex, habit: Habit): number {
-  let best = 0;
-  let run = 0;
-  let prev = "";
-  for (const d of doneDates(idx, habit)) {
-    run = prev && shiftDate(prev, 1) === d ? run + 1 : 1;
-    best = Math.max(best, run);
-    prev = d;
-  }
-  return best;
-}
-
-/** Stable accent hue for a string id. */
 export const hashHue = (s: string) =>
   [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
 

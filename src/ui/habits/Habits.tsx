@@ -1,21 +1,32 @@
 import { useMemo, useRef, useState } from "preact/hooks";
 import type { TargetedPointerEvent } from "preact";
 import type { DocHandle } from "@automerge/automerge-repo";
-import type { Habit, LedgerDoc } from "../../model/types";
+import type { Expectation, Habit, LedgerDoc } from "../../model/types";
 import {
   activeHabits,
   archivedHabits,
   dayRange,
   doneIndex,
   habitHue,
-  habitStreak,
   HUES,
   isDone,
   shiftDate,
 } from "../../model/reduce";
 import {
-  createDailyHabit,
+  countsOn,
+  DAILY,
+  habitStreak,
+  isDue,
+  isScheduled,
+  progress,
+  scheduleLabel,
+  streakUnit,
+  WEEKDAYS,
+} from "../../model/schedule";
+import {
+  createHabit,
   moveHabit,
+  setHabitExpectation,
   renameHabit,
   setHabitArchived,
   setHabitHue,
@@ -51,12 +62,14 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const habits = activeHabits(doc);
   const archived = archivedHabits(doc);
   const editing = editingId ? doc.habits[editingId] : undefined;
-  const doneToday = habits.filter((h) => isDone(idx, h, today)).length;
+  // habits not due today (a weekday off, a weekly target met) stay out of the count
+  const dueToday = habits.filter((h) => countsOn(idx, h, today));
+  const doneToday = dueToday.filter((h) => isDone(idx, h, today)).length;
   const first = monthLabel(days[0]!);
 
   return (
     <section>
-      {habits.length > 0 && <TodaySummary done={doneToday} total={habits.length} />}
+      {habits.length > 0 && <TodaySummary done={doneToday} total={dueToday.length} />}
 
       <div class="toolbar">
         <button class="ghost" aria-label="Earlier" onClick={() => setPage(page + 1)}>‹</button>
@@ -105,16 +118,26 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
                   </button>
                   <button class="habit-name" onClick={() => setEditingId(h.id)}>
                     <span class="dot" />
-                    <span>{h.name}</span>
+                    <span>
+                      {h.name}
+                      {h.expectation.kind !== "daily" && (
+                        <small class="sched">
+                          {scheduleLabel(h.expectation)}
+                          {progress(idx, h, today) && <> · {progress(idx, h, today)}</>}
+                        </small>
+                      )}
+                    </span>
                   </button>
                 </span>
                 {days.map((d) => {
                   const done = isDone(idx, h, d);
                   const isToday = d === today;
+                  const due = isToday && isDue(idx, h, d);
+                  const rest = !isScheduled(h, d);
                   return (
                     <span key={d} class={isToday ? "cell-wrap today" : "cell-wrap"}>
                       <button
-                        class={`cell${done ? " done" : ""}${isToday ? " today" : ""}`}
+                        class={`cell${done ? " done" : ""}${due ? " today" : ""}${rest ? " rest" : ""}`}
                         aria-pressed={done}
                         aria-label={`${h.name}, ${longDate(d)}`}
                         onClick={() => toggleHabit(handle, h, d)}
@@ -125,7 +148,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
                   );
                 })}
                 <span class={streak > 0 ? "streak on" : "streak"}>
-                  {streak > 0 ? <>🔥 {streak}</> : "–"}
+                  {streak > 0 ? <>🔥 {streak}{streakUnit(h.expectation)}</> : "–"}
                 </span>
               </div>
             );
@@ -151,9 +174,11 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
         <EditHabit
           habit={editing}
           onClose={() => setEditingId(null)}
-          onSave={(name, hue) => {
+          onSave={(name, hue, expectation) => {
             if (name !== editing.name) renameHabit(handle, editing.id, name);
             if (hue !== habitHue(editing)) setHabitHue(handle, editing.id, hue);
+            if (JSON.stringify(expectation) !== JSON.stringify(editing.expectation))
+              setHabitExpectation(handle, editing.id, expectation);
             setEditingId(null);
           }}
           onArchive={() => {
@@ -166,8 +191,8 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
       {adding && (
         <AddHabit
           onClose={() => setAdding(false)}
-          onAdd={(name) => {
-            createDailyHabit(handle, name);
+          onAdd={(name, expectation) => {
+            createHabit(handle, name, expectation);
             setAdding(false);
           }}
         />
@@ -248,6 +273,7 @@ function TodaySummary({ done, total }: { done: number; total: number }) {
   const r = 26;
   const c = 2 * Math.PI * r;
   const all = done === total;
+  const share = total ? done / total : 1;
   return (
     <div class={all ? "summary all" : "summary"}>
       <svg class="ring" viewBox="0 0 64 64" width="64" height="64" aria-hidden="true">
@@ -255,12 +281,12 @@ function TodaySummary({ done, total }: { done: number; total: number }) {
         <circle
           cx="32" cy="32" r={r} class="ring-fg"
           stroke-dasharray={c}
-          stroke-dashoffset={c * (1 - done / total)}
+          stroke-dashoffset={c * (1 - share)}
         />
       </svg>
       <div>
         <div class="summary-count">{done} <small>/ {total}</small></div>
-        <div class="summary-label">{all ? "All done today 🎉" : "done today"}</div>
+        <div class="summary-label">{total === 0 ? "Nothing due today" : all ? "All done today 🎉" : "done today"}</div>
       </div>
     </div>
   );
@@ -269,22 +295,24 @@ function TodaySummary({ done, total }: { done: number; total: number }) {
 function EditHabit(props: {
   habit: Habit;
   onClose: () => void;
-  onSave: (name: string, hue: number) => void;
+  onSave: (name: string, hue: number, expectation: Expectation) => void;
   onArchive: () => void;
 }) {
   const [name, setName] = useState(props.habit.name);
   const [hue, setHue] = useState(habitHue(props.habit));
+  const [expectation, setExpectation] = useState<Expectation>(props.habit.expectation);
   return (
     <Modal title="Edit habit" onClose={props.onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (name.trim()) props.onSave(name.trim(), hue);
+          if (name.trim()) props.onSave(name.trim(), hue, expectation);
         }}
       >
         <label>Name
           <input autofocus value={name} onInput={(e) => setName(e.currentTarget.value)} />
         </label>
+        <ScheduleField value={expectation} onChange={setExpectation} />
         <fieldset class="swatches">
           <legend>Colour</legend>
           {HUES.map((h) => (
@@ -310,22 +338,80 @@ function EditHabit(props: {
   );
 }
 
-function AddHabit(props: { onClose: () => void; onAdd: (name: string) => void }) {
+function AddHabit(props: { onClose: () => void; onAdd: (name: string, expectation: Expectation) => void }) {
   const [name, setName] = useState("");
+  const [expectation, setExpectation] = useState<Expectation>(DAILY);
   return (
-    <Modal title="New daily habit" onClose={props.onClose}>
+    <Modal title="New habit" onClose={props.onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (name.trim()) props.onAdd(name.trim());
+          if (name.trim()) props.onAdd(name.trim(), expectation);
         }}
       >
         <input autofocus placeholder="e.g. Stretch" value={name} onInput={(e) => setName(e.currentTarget.value)} />
+        <ScheduleField value={expectation} onChange={setExpectation} />
         <footer>
           <button type="button" onClick={props.onClose}>Cancel</button>
           <button class="primary" disabled={!name.trim()}>Add habit</button>
         </footer>
       </form>
     </Modal>
+  );
+}
+
+/** Defaults when switching to a kind in the picker. */
+const KINDS: { kind: Expectation["kind"]; label: string; initial: Expectation }[] = [
+  { kind: "daily", label: "Every day", initial: DAILY },
+  { kind: "weekdays", label: "On certain days", initial: { kind: "weekdays", days: [1, 3, 5] } },
+  { kind: "perWeek", label: "Times a week", initial: { kind: "perWeek", times: 3 } },
+  { kind: "perMonth", label: "Times a month", initial: { kind: "perMonth", times: 2 } },
+  { kind: "every", label: "Every few days", initial: { kind: "every", days: 7 } },
+];
+
+function ScheduleField(props: { value: Expectation; onChange: (e: Expectation) => void }) {
+  const e = props.value;
+  const number = (value: number, min: number, max: number, set: (n: number) => void, suffix: string) => (
+    <label class="inline">
+      <input
+        type="number" inputMode="numeric" min={min} max={max} value={value}
+        onInput={(ev) => {
+          const n = Math.round(Number(ev.currentTarget.value));
+          if (n >= min && n <= max) set(n);
+        }}
+      />
+      {suffix}
+    </label>
+  );
+  return (
+    <fieldset class="schedule">
+      <legend>How often</legend>
+      <select
+        value={e.kind}
+        onChange={(ev) => props.onChange(KINDS.find((k) => k.kind === ev.currentTarget.value)!.initial)}
+      >
+        {KINDS.map((k) => <option key={k.kind} value={k.kind}>{k.label}</option>)}
+      </select>
+      {e.kind === "weekdays" && (
+        <div class="weekdays">
+          {WEEKDAYS.map((label, d) => {
+            const on = e.days.includes(d);
+            return (
+              <button
+                type="button" key={d} aria-pressed={on}
+                // keep at least one day
+                disabled={on && e.days.length === 1}
+                onClick={() => props.onChange({ kind: "weekdays", days: on ? e.days.filter((x) => x !== d) : [...e.days, d].sort() })}
+              >
+                {label.slice(0, 2)}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {e.kind === "perWeek" && number(e.times, 1, 7, (times) => props.onChange({ kind: "perWeek", times }), "times each week (Sun–Sat)")}
+      {e.kind === "perMonth" && number(e.times, 1, 31, (times) => props.onChange({ kind: "perMonth", times }), "times each month")}
+      {e.kind === "every" && number(e.days, 2, 365, (days) => props.onChange({ kind: "every", days }), "days after the last time")}
+    </fieldset>
   );
 }

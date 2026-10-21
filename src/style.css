@@ -188,6 +188,8 @@ button.habit-name {
   font-weight: 500; overflow-wrap: normal; word-break: normal; hyphens: auto; min-width: 0;
 }
 button.habit-name:hover { background: var(--surface-2); }
+.sched { display: block; color: var(--muted); font-size: .72rem; font-weight: 400; line-height: 1.2; }
+.cell.rest:not(.done) { background: transparent; border: 1.5px dashed var(--border); }
 .dot { width: .6rem; height: .6rem; border-radius: 50%; background: var(--habit); flex: none; }
 
 /* today column band */
@@ -258,6 +260,13 @@ dialog form { display: flex; flex-direction: column; gap: .9rem; }
 dialog .row { display: flex; gap: .6rem; flex-wrap: wrap; }
 dialog .row > button { flex: 1; }
 dialog footer { display: flex; align-items: center; gap: .5rem; margin-top: .3rem; }
+.schedule { border: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .5rem; }
+.schedule legend { font-size: .85rem; color: var(--muted); margin-bottom: .35rem; padding: 0; }
+.schedule label.inline { flex-direction: row; align-items: center; gap: .5rem; color: var(--muted); font-size: .9rem; }
+.schedule label.inline input { width: 4.5rem; flex: none; }
+.weekdays { display: flex; gap: .3rem; }
+.weekdays button { flex: 1; padding: .45rem 0; min-width: 0; }
+.weekdays button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
 .swatches { border: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: .45rem; }
 .swatches legend { font-size: .85rem; color: var(--muted); margin-bottom: .35rem; padding: 0; }
 .swatch { width: 2rem; height: 2rem; padding: 0; border-radius: 50%; background: var(--habit); border: 2px solid transparent; }
