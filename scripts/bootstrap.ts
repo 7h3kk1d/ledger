@@ -1,5 +1,6 @@
 // Create the root doc and a first ledger doc on a sync server, and print the
-// root url for config.json. Seeds habits from src/seed.local.ts if it exists.
+// root url for config.json. Seeds habits from src/seed.local.ts if it exists:
+// SEED_HABITS lists names (daily habits) or SeedHabit objects (with a schedule).
 //
 //   pnpm bootstrap <ws url> [--write]
 //
@@ -9,7 +10,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import { Repo } from "@automerge/automerge-repo";
 import { WebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket";
 import type { LedgerDoc, RootDoc } from "../src/model/types";
-import { createLedger, createRoot } from "../src/store/root";
+import { createLedger, createRoot, type SeedHabit } from "../src/store/root";
 
 const [url, ...flags] = process.argv.slice(2);
 if (!url?.match(/^wss?:\/\//)) {
@@ -18,7 +19,9 @@ if (!url?.match(/^wss?:\/\//)) {
 }
 
 const seedFile = new URL("../src/seed.local.ts", import.meta.url);
-const seed: string[] = existsSync(seedFile) ? (await import(seedFile.href)).SEED_HABITS : [];
+const seed: SeedHabit[] = (
+  existsSync(seedFile) ? ((await import(seedFile.href)).SEED_HABITS as (string | SeedHabit)[]) : []
+).map((s) => (typeof s === "string" ? { name: s } : s));
 
 const connect = async () => {
   const network = new WebSocketClientAdapter(url);
@@ -28,7 +31,7 @@ const connect = async () => {
 };
 
 const repo = await connect();
-const ledger = createLedger(repo, seed.map((name) => ({ name })));
+const ledger = createLedger(repo, seed);
 const root = createRoot(repo, ledger);
 console.log(`Created the ledger doc with ${seed.length} seed habits, and the root doc.`);
 
