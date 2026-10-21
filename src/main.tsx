@@ -6,11 +6,12 @@ import type { LedgerDoc } from "./model/types";
 import { exportBackup, importBackup, openHandle } from "./store/store";
 import { Habits } from "./ui/habits/Habits";
 import { Events } from "./ui/events/Events";
+import { Calendar } from "./ui/calendar/Calendar";
 import "./style.css";
 
 function App() {
   const [handle, setHandle] = useState<DocHandle<LedgerDoc>>();
-  const [tab, setTab] = useState<"habits" | "events">("habits");
+  const [tab, setTab] = useState<"habits" | "calendar" | "events">("habits");
 
   useEffect(() => {
     openHandle().then(setHandle);
@@ -38,6 +39,7 @@ function App() {
         <h1>Ledger</h1>
         <div class="segmented" role="tablist">
           <button role="tab" aria-selected={tab === "habits"} onClick={() => setTab("habits")}>Habits</button>
+          <button role="tab" aria-selected={tab === "calendar"} onClick={() => setTab("calendar")}>Calendar</button>
           <button role="tab" aria-selected={tab === "events"} onClick={() => setTab("events")}>Events</button>
         </div>
         <span class="grow" />
@@ -52,7 +54,7 @@ function App() {
           </div>
         </details>
       </header>
-      {tab === "habits" ? <Habits handle={handle} /> : <Events handle={handle} />}
+      {tab === "habits" ? <Habits handle={handle} /> : tab === "calendar" ? <Calendar handle={handle} /> : <Events handle={handle} />}
     </main>
   );
 }

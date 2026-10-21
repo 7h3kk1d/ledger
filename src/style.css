@@ -124,3 +124,19 @@ dialog header { display: flex; align-items: center; justify-content: space-betwe
 dialog form { display: flex; flex-direction: column; gap: .8rem; }
 dialog .row { display: flex; gap: .75rem; }
 dialog footer { display: flex; justify-content: flex-end; gap: .5rem; margin-top: .4rem; }
+
+/* calendar */
+.calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.weekday { text-align: center; font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding-bottom: .25rem; }
+.day-cell {
+  position: relative; aspect-ratio: 1; min-height: 3rem; padding: .3rem; border-radius: 8px;
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between;
+  background: color-mix(in srgb, var(--done) calc(var(--ratio) * 70%), var(--surface));
+}
+.day-cell .num { font-size: .85rem; }
+.day-cell .mark, .day-cell .frac { align-self: flex-end; font-weight: 700; font-size: .85rem; }
+.day-cell.done { color: var(--accent-text); }
+.day-cell.outside { opacity: .4; }
+.day-cell.today { border-color: var(--accent); border-width: 2px; }
+.checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .6rem; }
+.checklist label { font-size: 1rem; color: var(--text); }
