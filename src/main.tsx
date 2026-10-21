@@ -3,7 +3,7 @@ import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { DocHandle } from "@automerge/automerge-repo";
 import type { LedgerDoc } from "./model/types";
-import { exportBackup, importBackup, openHandle } from "./store/store";
+import { exportBackup, importBackup, openHandle, resetToSeed } from "./store/store";
 import { Habits } from "./ui/habits/Habits";
 import { Events } from "./ui/events/Events";
 import { Calendar } from "./ui/calendar/Calendar";
@@ -33,6 +33,12 @@ function App() {
     location.reload();
   };
 
+  const onReset = () => {
+    if (!confirm("Discard all current data and reset to the seed habits?")) return;
+    resetToSeed();
+    location.reload();
+  };
+
   return (
     <main>
       <header class="app-header">
@@ -51,6 +57,7 @@ function App() {
               Import backup
               <input type="file" hidden onChange={onImport} />
             </label>
+            <button class="danger" onClick={onReset}>Reset to seed…</button>
           </div>
         </details>
       </header>

@@ -2,3 +2,4 @@ node_modules
 dist
 .direnv
 *.local
+*.local.ts

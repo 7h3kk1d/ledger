@@ -10,6 +10,9 @@ import {
 } from "../model/types";
 
 import { habitEventsOn, localDate } from "../model/reduce";
+// Optional, gitignored (src/seed.local.ts exports SEED_HABITS: string[]).
+const localSeed = import.meta.glob<{ SEED_HABITS: string[] }>("../seed.local.ts", { eager: true });
+const SEED_HABITS = Object.values(localSeed)[0]?.SEED_HABITS ?? [];
 
 const URL_KEY ="ledger:docUrl";
 
@@ -22,9 +25,20 @@ export const repo = new Repo({ storage: new IndexedDBStorageAdapter("ledger") })
 export async function openHandle(): Promise<DocHandle<LedgerDoc>> {
   const known = localStorage.getItem(URL_KEY) as AutomergeUrl | null;
   if (known) return repo.find<LedgerDoc>(known);
+  return newSeededDoc();
+}
+
+/** Create a fresh doc with the seed habits and make it the active one. */
+function newSeededDoc(): DocHandle<LedgerDoc> {
   const handle = repo.create<LedgerDoc>(emptyDoc());
+  for (const name of SEED_HABITS) createDailyHabit(handle, name);
   localStorage.setItem(URL_KEY, handle.url);
   return handle;
+}
+
+/** Abandon the current doc (left in IndexedDB) and start over from the seed. */
+export function resetToSeed(): void {
+  newSeededDoc();
 }
 
 export interface NewEvent {
