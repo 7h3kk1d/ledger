@@ -2,10 +2,18 @@ import { useState } from "preact/hooks";
 import type { DocHandle } from "@automerge/automerge-repo";
 import type { Attrs, Event, LedgerDoc, Occurred } from "../../model/types";
 import { currentEvents, localDate, occurredDate } from "../../model/reduce";
-import { amendEvent, createEventType, logEvent, tombstoneEvent } from "../../store/store";
+import { createEventType, logEvent } from "../../store/store";
 import { useDoc } from "../../store/useDoc";
+import { Modal } from "../Modal";
 
-const fmt = (o: Occurred) => (o.kind === "day" ? o.date : new Date(o.at).toLocaleString());
+type View = "timeline" | "table";
+
+const timeOf = (o: Occurred) =>
+  o.kind === "day" ? "all day" : new Date(o.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+const dayLabel = (d: string) =>
+  new Date(`${d}T00:00`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", year: "numeric" });
+/** Sort key: exact time within the day; whole-day entries sort first. */
+const sortKey = (o: Occurred) => (o.kind === "day" ? `${o.date}T00:00` : new Date(o.at).toISOString());
 
 function parseAttrs(text: string): Attrs {
   const out: Attrs = {};
@@ -15,113 +23,167 @@ function parseAttrs(text: string): Attrs {
   }
   return out;
 }
-const showAttrs = (a: Attrs) => Object.entries(a).map(([k, v]) => `${k}=${v}`).join("\n");
+const hue = (s: string) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
 
 export function Events({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const doc = useDoc(handle);
+  const [view, setView] = useState<View>("timeline");
   const [showRaw, setShowRaw] = useState(false);
-  const [editing, setEditing] = useState<Event | null>(null);
-  const [typeName, setTypeName] = useState("");
+  const [filter, setFilter] = useState("");
+  const [logging, setLogging] = useState(false);
 
   const types = Object.values(doc.eventTypes);
-  const typeName_ = (id: string) => doc.eventTypes[id]?.name ?? id;
-  const rows = showRaw
-    ? Object.values(doc.events)
-    : currentEvents(doc);
-  rows.sort((a, b) => b.loggedAt.localeCompare(a.loggedAt));
+  const typeName = (id: string) => doc.eventTypes[id]?.name ?? id;
+  const raw = showRaw && view === "table";
+  const rows = (raw ? Object.values(doc.events) : currentEvents(doc))
+    .filter((e) => !filter || e.typeId === filter)
+    .sort((a, b) => sortKey(b.occurred).localeCompare(sortKey(a.occurred)));
+
+  const byDay = new Map<string, Event[]>();
+  for (const e of rows) {
+    const d = occurredDate(e.occurred);
+    byDay.set(d, [...(byDay.get(d) ?? []), e]);
+  }
+
+  const Chip = ({ e }: { e: Event }) => (
+    <span class="chip" style={{ "--h": hue(e.typeId) }}>{typeName(e.typeId)}</span>
+  );
+  const attrsText = (e: Event) => Object.entries(e.attrs).map(([k, v]) => `${k}: ${v}`).join(" · ");
 
   return (
     <section>
-      <label>
-        <input type="checkbox" checked={showRaw} onChange={(e) => setShowRaw(e.currentTarget.checked)} /> Show raw log
-      </label>
+      <div class="toolbar">
+        <div class="segmented" role="tablist">
+          <button role="tab" aria-selected={view === "timeline"} onClick={() => setView("timeline")}>Timeline</button>
+          <button role="tab" aria-selected={view === "table"} onClick={() => setView("table")}>Table</button>
+        </div>
+        <select value={filter} onChange={(e) => setFilter(e.currentTarget.value)}>
+          <option value="">All types</option>
+          {types.map((t) => <option value={t.id}>{t.name}</option>)}
+        </select>
+        {view === "table" && (
+          <label class="check">
+            <input type="checkbox" checked={showRaw} onChange={(e) => setShowRaw(e.currentTarget.checked)} /> Raw log
+          </label>
+        )}
+        <span class="grow" />
+        <button class="primary" onClick={() => setLogging(true)}>+ Log event</button>
+      </div>
 
-      <EventForm
-        key={editing?.id ?? "new"}
-        types={types}
-        initial={editing}
-        onCancel={() => setEditing(null)}
-        onSubmit={(v) => {
-          if (editing) amendEvent(handle, editing.id, v);
-          else logEvent(handle, v);
-          setEditing(null);
-        }}
-      />
+      {rows.length === 0 && <p class="empty">No events yet.</p>}
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!typeName.trim()) return;
-          createEventType(handle, typeName.trim());
-          setTypeName("");
-        }}
-      >
-        <input placeholder="New event type" value={typeName} onInput={(e) => setTypeName(e.currentTarget.value)} />
-        <button>Add type</button>
-      </form>
+      {view === "timeline" ? (
+        <div class="timeline">
+          {[...byDay].map(([day, es]) => (
+            <div class="day-group" key={day}>
+              <h3>{dayLabel(day)}</h3>
+              {es.map((e) => (
+                <div class="entry" key={e.id} style={{ "--h": hue(e.typeId) }}>
+                  <time>{timeOf(e.occurred)}</time>
+                  <div class="body">
+                    <Chip e={e} />
+                    {attrsText(e) && <span class="attrs">{attrsText(e)}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>When</th><th>Type</th><th>Attributes</th><th>Logged</th><th>Author</th><th>ID</th></tr>
+            </thead>
+            <tbody>
+              {rows.map((e) => (
+                <tr key={e.id} class={e.deleted ? "tomb" : ""}>
+                  <td>{occurredDate(e.occurred)} {timeOf(e.occurred)}</td>
+                  <td><Chip e={e} /></td>
+                  <td>{e.deleted ? "deleted" : attrsText(e)}</td>
+                  <td>{new Date(e.loggedAt).toLocaleString()}</td>
+                  <td>{e.author}</td>
+                  <td><code>{e.id.slice(0, 8)}{e.amends && ` → ${e.amends.slice(0, 8)}`}</code></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
-      <ul>
-        {rows.map((e) => (
-          <li key={e.id}>
-            <span class="name">
-              {e.deleted ? "🗑 " : ""}
-              {typeName_(e.typeId)} — {fmt(e.occurred)}
-              {Object.keys(e.attrs).length > 0 && ` (${showAttrs(e.attrs).replace(/\n/g, ", ")})`}
-              <br />
-              <code>
-                {e.id.slice(0, 8)} logged {e.loggedAt} by {e.author}
-                {e.amends && ` ${e.deleted ? "retracts" : "amends"} ${e.amends.slice(0, 8)}`}
-              </code>
-            </span>
-            {!e.deleted && !showRaw && (
-              <>
-                <button onClick={() => setEditing(e)}>Edit</button>
-                <button onClick={() => tombstoneEvent(handle, e)}>Delete</button>
-              </>
-            )}
-          </li>
-        ))}
-      </ul>
-      {rows.length === 0 && <p>No events.</p>}
+      {logging && (
+        <EventForm
+          types={types}
+          onClose={() => setLogging(false)}
+          onSubmit={(v, newType) => {
+            const typeId = newType ? createEventType(handle, newType) : v.typeId;
+            logEvent(handle, { ...v, typeId });
+            setLogging(false);
+          }}
+        />
+      )}
     </section>
   );
 }
 
+const NEW = "__new__";
+
 function EventForm(props: {
   types: { id: string; name: string }[];
-  initial: Event | null;
-  onSubmit: (v: { typeId: string; occurred: Occurred; attrs: Attrs }) => void;
-  onCancel: () => void;
+  onSubmit: (v: { typeId: string; occurred: Occurred; attrs: Attrs }, newType?: string) => void;
+  onClose: () => void;
 }) {
-  const i = props.initial;
-  const [typeId, setTypeId] = useState(i?.typeId ?? props.types[0]?.id ?? "");
-  const [date, setDate] = useState(i ? occurredDate(i.occurred) : localDate(new Date()));
-  const [wholeDay, setWholeDay] = useState(i ? i.occurred.kind === "day" : false);
-  const [time, setTime] = useState(
-    i?.occurred.kind === "instant" ? new Date(i.occurred.at).toTimeString().slice(0, 5) : new Date().toTimeString().slice(0, 5),
-  );
-  const [attrs, setAttrs] = useState(i ? showAttrs(i.attrs) : "");
+  const [typeId, setTypeId] = useState(props.types[0]?.id ?? NEW);
+  const [newType, setNewType] = useState("");
+  const [date, setDate] = useState(localDate(new Date()));
+  const [wholeDay, setWholeDay] = useState(false);
+  const [time, setTime] = useState(new Date().toTimeString().slice(0, 5));
+  const [attrs, setAttrs] = useState("");
+  const creating = typeId === NEW;
+  const valid = !creating || newType.trim() !== "";
 
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (!typeId) return;
-        const occurred: Occurred = wholeDay
-          ? { kind: "day", date }
-          : { kind: "instant", at: new Date(`${date}T${time}`).toISOString() };
-        props.onSubmit({ typeId, occurred, attrs: parseAttrs(attrs) });
-      }}
-    >
-      <select value={typeId} onChange={(e) => setTypeId(e.currentTarget.value)}>
-        {props.types.map((t) => <option value={t.id}>{t.name}</option>)}
-      </select>
-      <input type="date" value={date} onInput={(e) => setDate(e.currentTarget.value)} />
-      {!wholeDay && <input type="time" value={time} onInput={(e) => setTime(e.currentTarget.value)} />}
-      <label><input type="checkbox" checked={wholeDay} onChange={(e) => setWholeDay(e.currentTarget.checked)} /> whole day</label>
-      <textarea placeholder="key=value per line" value={attrs} onInput={(e) => setAttrs(e.currentTarget.value)} />
-      <button>{i ? "Save edit" : "Log event"}</button>
-      {i && <button type="button" onClick={props.onCancel}>Cancel</button>}
-    </form>
+    <Modal title="Log event" onClose={props.onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!valid) return;
+          const occurred: Occurred = wholeDay
+            ? { kind: "day", date }
+            : { kind: "instant", at: new Date(`${date}T${time}`).toISOString() };
+          props.onSubmit({ typeId, occurred, attrs: parseAttrs(attrs) }, creating ? newType.trim() : undefined);
+        }}
+      >
+        <label>Type
+          <select value={typeId} onChange={(e) => setTypeId(e.currentTarget.value)}>
+            {props.types.map((t) => <option value={t.id}>{t.name}</option>)}
+            <option value={NEW}>+ New type…</option>
+          </select>
+        </label>
+        {creating && (
+          <input autofocus placeholder="New type name" value={newType} onInput={(e) => setNewType(e.currentTarget.value)} />
+        )}
+        <div class="row">
+          <label class="grow">Date
+            <input type="date" value={date} onInput={(e) => setDate(e.currentTarget.value)} />
+          </label>
+          {!wholeDay && (
+            <label>Time
+              <input type="time" value={time} onInput={(e) => setTime(e.currentTarget.value)} />
+            </label>
+          )}
+        </div>
+        <label class="check">
+          <input type="checkbox" checked={wholeDay} onChange={(e) => setWholeDay(e.currentTarget.checked)} /> Whole day (no specific time)
+        </label>
+        <label>Attributes
+          <textarea rows={3} placeholder="key=value, one per line" value={attrs} onInput={(e) => setAttrs(e.currentTarget.value)} />
+        </label>
+        <footer>
+          <button type="button" onClick={props.onClose}>Cancel</button>
+          <button class="primary" disabled={!valid}>Log event</button>
+        </footer>
+      </form>
+    </Modal>
   );
 }

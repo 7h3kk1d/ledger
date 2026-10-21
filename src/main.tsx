@@ -34,16 +34,24 @@ function App() {
 
   return (
     <main>
-      <nav>
-        <button disabled={tab === "habits"} onClick={() => setTab("habits")}>Habits</button>
-        <button disabled={tab === "events"} onClick={() => setTab("events")}>Events</button>
-        <span class="spacer" />
-        <button onClick={onExport}>Export</button>
-        <label class="button">
-          Import
-          <input type="file" hidden onChange={onImport} />
-        </label>
-      </nav>
+      <header class="app-header">
+        <h1>Ledger</h1>
+        <div class="segmented" role="tablist">
+          <button role="tab" aria-selected={tab === "habits"} onClick={() => setTab("habits")}>Habits</button>
+          <button role="tab" aria-selected={tab === "events"} onClick={() => setTab("events")}>Events</button>
+        </div>
+        <span class="grow" />
+        <details class="menu">
+          <summary aria-label="Backup menu">⋯</summary>
+          <div>
+            <button onClick={onExport}>Export backup</button>
+            <label class="button">
+              Import backup
+              <input type="file" hidden onChange={onImport} />
+            </label>
+          </div>
+        </details>
+      </header>
       {tab === "habits" ? <Habits handle={handle} /> : <Events handle={handle} />}
     </main>
   );

@@ -1,64 +1,113 @@
 import { useState } from "preact/hooks";
 import type { DocHandle } from "@automerge/automerge-repo";
 import type { Habit, LedgerDoc } from "../../model/types";
-import { habitEventsOn, localDate } from "../../model/reduce";
-import { createDailyHabit, logEvent, tombstoneEvent } from "../../store/store";
+import {
+  dayRange,
+  habitEventsOn,
+  habitStreak,
+  localDate,
+  shiftDate,
+} from "../../model/reduce";
+import { createDailyHabit, toggleHabit } from "../../store/store";
 import { useDoc } from "../../store/useDoc";
+import { Modal } from "../Modal";
+
+const DAYS = 7;
+const weekday = (d: string) =>
+  new Date(`${d}T00:00`).toLocaleDateString(undefined, { weekday: "short" });
+const dayNum = (d: string) => Number(d.slice(8));
+const monthLabel = (d: string) =>
+  new Date(`${d}T00:00`).toLocaleDateString(undefined, { month: "short", year: "numeric" });
 
 export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const doc = useDoc(handle);
-  const [date, setDate] = useState(() => localDate(new Date()));
-  const [name, setName] = useState("");
   const today = localDate(new Date());
-
-  const toggle = (habit: Habit) => {
-    const existing = habitEventsOn(doc, habit, date);
-    if (existing.length) {
-      // undo: tombstone that day's events
-      for (const e of existing) tombstoneEvent(handle, e);
-      return;
-    }
-    const typeId = habit.eventTypeIds[0]!;
-    logEvent(handle, {
-      typeId,
-      // backfilled days are whole-day events; today gets an exact time
-      occurred:
-        date === today
-          ? { kind: "instant", at: new Date().toISOString() }
-          : { kind: "day", date },
-    });
-  };
-
+  const [end, setEnd] = useState(today);
+  const [adding, setAdding] = useState(false);
+  const days = dayRange(end, DAYS);
   const habits = Object.values(doc.habits);
+
+  const toggle = (habit: Habit, date: string) => toggleHabit(handle, doc, habit, date);
 
   return (
     <section>
-      <label>
-        Day <input type="date" value={date} max={today} onInput={(e) => setDate(e.currentTarget.value)} />
-      </label>
-      <ul>
-        {habits.map((h) => {
-          const done = habitEventsOn(doc, h, date).length > 0;
-          return (
-            <li key={h.id} class={done ? "done" : ""}>
-              <input type="checkbox" checked={done} onChange={() => toggle(h)} />
-              <span class="name">{h.name}</span>
-            </li>
-          );
-        })}
-      </ul>
-      {habits.length === 0 && <p>No habits yet.</p>}
+      <div class="toolbar">
+        <button class="ghost" onClick={() => setEnd(shiftDate(end, -DAYS))}>‹</button>
+        <strong class="grow">{monthLabel(days[0]!)}{monthLabel(days[0]!) !== monthLabel(end) && ` – ${monthLabel(end)}`}</strong>
+        <button class="ghost" disabled={end >= today} onClick={() => setEnd(shiftDate(end, DAYS) > today ? today : shiftDate(end, DAYS))}>›</button>
+        <button disabled={end === today} onClick={() => setEnd(today)}>Today</button>
+        <button class="primary" onClick={() => setAdding(true)}>+ Habit</button>
+      </div>
+
+      {habits.length === 0 ? (
+        <p class="empty">No habits yet. Add one to start tracking.</p>
+      ) : (
+        <div class="grid" style={{ "--cols": DAYS }}>
+          <div class="grid-head">
+            <span />
+            {days.map((d) => (
+              <span key={d} class={d === today ? "day today" : "day"}>
+                <small>{weekday(d)}</small>
+                {dayNum(d)}
+              </span>
+            ))}
+            <span class="streak-h">Streak</span>
+          </div>
+          {habits.map((h) => {
+            const streak = habitStreak(doc, h, today);
+            return (
+              <div class="grid-row" key={h.id}>
+                <span class="habit-name">{h.name}</span>
+                {days.map((d) => {
+                  const done = habitEventsOn(doc, h, d).length > 0;
+                  return (
+                    <button
+                      key={d}
+                      class={`cell${done ? " done" : ""}${d === today ? " today" : ""}`}
+                      aria-pressed={done}
+                      aria-label={`${h.name} ${d}`}
+                      onClick={() => toggle(h, d)}
+                    >
+                      {done ? "✓" : ""}
+                    </button>
+                  );
+                })}
+                <span class="streak">{streak > 0 ? `🔥 ${streak}` : "–"}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {adding && (
+        <AddHabit
+          onClose={() => setAdding(false)}
+          onAdd={(name) => {
+            createDailyHabit(handle, name);
+            setAdding(false);
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+function AddHabit(props: { onClose: () => void; onAdd: (name: string) => void }) {
+  const [name, setName] = useState("");
+  return (
+    <Modal title="New daily habit" onClose={props.onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (!name.trim()) return;
-          createDailyHabit(handle, name.trim());
-          setName("");
+          if (name.trim()) props.onAdd(name.trim());
         }}
       >
-        <input placeholder="New daily habit" value={name} onInput={(e) => setName(e.currentTarget.value)} />
-        <button>Add</button>
+        <input autofocus placeholder="e.g. Stretch" value={name} onInput={(e) => setName(e.currentTarget.value)} />
+        <footer>
+          <button type="button" onClick={props.onClose}>Cancel</button>
+          <button class="primary" disabled={!name.trim()}>Add habit</button>
+        </footer>
       </form>
-    </section>
+    </Modal>
   );
 }
