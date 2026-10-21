@@ -9,7 +9,9 @@ import {
   type Occurred,
 } from "../model/types";
 
-const URL_KEY = "ledger:docUrl";
+import { habitEventsOn, localDate } from "../model/reduce";
+
+const URL_KEY ="ledger:docUrl";
 
 const emptyDoc = (): LedgerDoc => ({ eventTypes: {}, habits: {}, events: {} });
 
@@ -81,7 +83,8 @@ export function tombstoneEvent(
     typeId: target.typeId,
     author: LOCAL_AUTHOR,
     loggedAt: new Date().toISOString(),
-    occurred: target.occurred,
+    // copy: Automerge can't reference an object that already lives in the doc
+    occurred: { ...target.occurred },
     attrs: {},
     amends: target.id,
     deleted: true,
@@ -90,6 +93,30 @@ export function tombstoneEvent(
     d.events[id] = event;
   });
   return id;
+}
+
+/**
+ * Check or uncheck a habit for a local date. Unchecking tombstones that day's
+ * events; checking logs one (exact time for today, whole-day when backfilling).
+ */
+export function toggleHabit(
+  h: DocHandle<LedgerDoc>,
+  doc: LedgerDoc,
+  habit: Habit,
+  date: string,
+): void {
+  const existing = habitEventsOn(doc, habit, date);
+  if (existing.length) {
+    for (const e of existing) tombstoneEvent(h, e);
+    return;
+  }
+  logEvent(h, {
+    typeId: habit.eventTypeIds[0]!,
+    occurred:
+      date === localDate(new Date())
+        ? { kind: "instant", at: new Date().toISOString() }
+        : { kind: "day", date },
+  });
 }
 
 export function createEventType(h: DocHandle<LedgerDoc>, name: string): string {
