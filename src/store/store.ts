@@ -169,3 +169,26 @@ export function importBackup(bytes: Uint8Array): void {
   const h = repo.import<LedgerDoc>(bytes);
   localStorage.setItem(URL_KEY, h.url);
 }
+
+/** Rename a habit and its paired event types so the Events views stay consistent. */
+export function renameHabit(h: DocHandle<LedgerDoc>, habitId: string, name: string): void {
+  h.change((d) => {
+    const habit = d.habits[habitId];
+    if (!habit) return;
+    habit.name = name;
+    for (const typeId of habit.eventTypeIds) {
+      const t = d.eventTypes[typeId];
+      if (t) t.name = name;
+    }
+  });
+}
+
+/** Archive hides a habit but keeps its events; restore brings it back. */
+export function setHabitArchived(h: DocHandle<LedgerDoc>, habitId: string, archived: boolean): void {
+  h.change((d) => {
+    const habit = d.habits[habitId];
+    if (!habit) return;
+    if (archived) habit.archived = true;
+    else delete habit.archived;
+  });
+}

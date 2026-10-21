@@ -2,13 +2,14 @@ import { useState } from "preact/hooks";
 import type { DocHandle } from "@automerge/automerge-repo";
 import type { Habit, LedgerDoc } from "../../model/types";
 import {
+  activeHabits,
   dayRange,
   habitEventsOn,
   habitStreak,
   localDate,
   shiftDate,
 } from "../../model/reduce";
-import { createDailyHabit, toggleHabit } from "../../store/store";
+import { createDailyHabit, renameHabit, setHabitArchived, toggleHabit } from "../../store/store";
 import { useDoc } from "../../store/useDoc";
 import { Modal } from "../Modal";
 
@@ -24,8 +25,10 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const today = localDate(new Date());
   const [end, setEnd] = useState(today);
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<Habit | null>(null);
   const days = dayRange(end, DAYS);
-  const habits = Object.values(doc.habits);
+  const habits = activeHabits(doc);
+  const archived = Object.values(doc.habits).filter((h) => h.archived);
 
   const toggle = (habit: Habit, date: string) => toggleHabit(handle, doc, habit, date);
 
@@ -57,7 +60,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
             const streak = habitStreak(doc, h, today);
             return (
               <div class="grid-row" key={h.id}>
-                <span class="habit-name">{h.name}</span>
+                <button class="ghost habit-name" onClick={() => setEditing(h)}>{h.name}</button>
                 {days.map((d) => {
                   const done = habitEventsOn(doc, h, d).length > 0;
                   return (
@@ -77,6 +80,35 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
             );
           })}
         </div>
+      )}
+
+      {archived.length > 0 && (
+        <details class="archived">
+          <summary>Archived ({archived.length})</summary>
+          <ul>
+            {archived.map((h) => (
+              <li key={h.id}>
+                <span>{h.name}</span>
+                <button class="ghost" onClick={() => setHabitArchived(handle, h.id, false)}>Restore</button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {editing && (
+        <EditHabit
+          habit={editing}
+          onClose={() => setEditing(null)}
+          onSave={(name) => {
+            renameHabit(handle, editing.id, name);
+            setEditing(null);
+          }}
+          onArchive={() => {
+            setHabitArchived(handle, editing.id, true);
+            setEditing(null);
+          }}
+        />
       )}
 
       {adding && (
@@ -106,6 +138,33 @@ function AddHabit(props: { onClose: () => void; onAdd: (name: string) => void })
         <footer>
           <button type="button" onClick={props.onClose}>Cancel</button>
           <button class="primary" disabled={!name.trim()}>Add habit</button>
+        </footer>
+      </form>
+    </Modal>
+  );
+}
+
+function EditHabit(props: {
+  habit: Habit;
+  onClose: () => void;
+  onSave: (name: string) => void;
+  onArchive: () => void;
+}) {
+  const [name, setName] = useState(props.habit.name);
+  return (
+    <Modal title="Edit habit" onClose={props.onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (name.trim()) props.onSave(name.trim());
+        }}
+      >
+        <input autofocus value={name} onInput={(e) => setName(e.currentTarget.value)} />
+        <footer>
+          <button type="button" class="danger" onClick={props.onArchive}>Archive</button>
+          <span class="grow" />
+          <button type="button" onClick={props.onClose}>Cancel</button>
+          <button class="primary" disabled={!name.trim()}>Save</button>
         </footer>
       </form>
     </Modal>

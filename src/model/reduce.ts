@@ -87,3 +87,7 @@ export function habitDoneOn(
 ): boolean {
   return habitEventsOn(doc, habit, date).length > 0;
 }
+
+export function activeHabits(doc: Pick<LedgerDoc, "habits">): Habit[] {
+  return Object.values(doc.habits).filter((h) => !h.archived);
+}

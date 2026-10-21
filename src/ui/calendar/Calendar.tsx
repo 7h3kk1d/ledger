@@ -1,7 +1,7 @@
 import { useState } from "preact/hooks";
 import type { DocHandle } from "@automerge/automerge-repo";
 import type { LedgerDoc } from "../../model/types";
-import { habitEventsOn, localDate, monthGrid } from "../../model/reduce";
+import { activeHabits, habitEventsOn, localDate, monthGrid } from "../../model/reduce";
 import { toggleHabit } from "../../store/store";
 import { useDoc } from "../../store/useDoc";
 import { Modal } from "../Modal";
@@ -22,7 +22,7 @@ export function Calendar({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const [habitId, setHabitId] = useState(""); // "" = all habits
   const [pickedDay, setPickedDay] = useState<string | null>(null);
 
-  const habits = Object.values(doc.habits);
+  const habits = activeHabits(doc);
   const habit = habitId ? doc.habits[habitId] : undefined;
   const days = monthGrid(month);
 

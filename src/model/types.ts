@@ -27,6 +27,8 @@ export interface Habit {
   name: string;
   eventTypeIds: string[];
   expectation: { kind: "daily" };
+  /** Hidden from the tracker; history is kept. */
+  archived?: true;
 }
 
 export interface LedgerDoc {
