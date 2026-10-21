@@ -166,7 +166,23 @@ label.check input { width: auto; }
 .day.today small { color: inherit; }
 .streak-h { text-align: right; font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 
+.habit-cell { display: flex; align-items: center; min-width: 0; }
+button.grip {
+  flex: none; display: grid; place-items: center; align-self: stretch;
+  width: 1.5rem; padding: 0; margin-left: -.3rem; border: none; background: none;
+  color: var(--muted); cursor: grab; touch-action: none; opacity: .55;
+}
+button.grip:hover, button.grip:focus-visible { opacity: 1; }
+.grid.reordering { user-select: none; -webkit-user-select: none; cursor: grabbing; }
+.grid.reordering .grid-row { transition: transform .15s ease; }
+.grid.reordering .grid-row.dragging {
+  transition: none; position: relative; z-index: 1;
+  background: var(--surface); box-shadow: var(--shadow); border-radius: 10px;
+}
+.grid.reordering .grid-row.dragging button.grip { opacity: 1; cursor: grabbing; }
+
 button.habit-name {
+  flex: 1;
   display: flex; align-items: center; gap: .5rem; text-align: left;
   border: none; background: none; padding: .55rem .2rem; border-radius: 8px;
   font-weight: 500; overflow-wrap: normal; word-break: normal; hyphens: auto; min-width: 0;

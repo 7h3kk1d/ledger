@@ -142,21 +142,20 @@ export function setHabitHue(h: DocHandle<LedgerDoc>, habitId: string, hue: numbe
   });
 }
 
-/** Swap a habit with its neighbour in display order (dir -1 = up, 1 = down). */
-export function moveHabit(h: DocHandle<LedgerDoc>, habitId: string, dir: -1 | 1): void {
+/** Move a habit to position `to` in display order (0 = top). */
+export function moveHabit(h: DocHandle<LedgerDoc>, habitId: string, to: number): void {
   h.change((d) => {
     const list = activeHabits(d);
     const i = list.findIndex((x) => x.id === habitId);
-    const j = i + dir;
-    if (i < 0 || j < 0 || j >= list.length) return;
+    const j = Math.max(0, Math.min(to, list.length - 1));
+    if (i < 0 || i === j) return;
+    list.splice(j, 0, list.splice(i, 1)[0]!);
     // renumber so habits without an order get one; pin colours first, since
     // an unset hue is derived from the order
     list.forEach((x, k) => {
       const habit = d.habits[x.id]!;
       if (habit.hue === undefined) habit.hue = habitHue(x);
-      habit.order = k + 1;
+      if (habit.order !== k + 1) habit.order = k + 1;
     });
-    d.habits[list[i]!.id]!.order = j + 1;
-    d.habits[list[j]!.id]!.order = i + 1;
   });
 }

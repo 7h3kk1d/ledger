@@ -74,15 +74,19 @@ describe("toggleHabit", () => {
 });
 
 describe("habit order", () => {
-  it("appends new habits and swaps on move", () => {
+  it("appends new habits and moves them to a position", () => {
     const h = newHandle();
-    const a = createDailyHabit(h, "B first");
-    const b = createDailyHabit(h, "A second");
-    expect(activeHabits(doc(h)).map((x) => x.id)).toEqual([a, b]);
-    moveHabit(h, b, -1);
-    expect(activeHabits(doc(h)).map((x) => x.id)).toEqual([b, a]);
-    moveHabit(h, b, -1); // already first: no-op
-    expect(activeHabits(doc(h)).map((x) => x.id)).toEqual([b, a]);
+    const [a, b, c, d] = ["B first", "A second", "C", "D"].map((n) => createDailyHabit(h, n));
+    const order = () => activeHabits(doc(h)).map((x) => x.id);
+    expect(order()).toEqual([a, b, c, d]);
+    moveHabit(h, d!, 1);
+    expect(order()).toEqual([a, d, b, c]);
+    moveHabit(h, a!, 3);
+    expect(order()).toEqual([d, b, c, a]);
+    moveHabit(h, b!, -5); // clamped to the top
+    expect(order()).toEqual([b, d, c, a]);
+    moveHabit(h, b!, 0); // already there: no-op
+    expect(order()).toEqual([b, d, c, a]);
   });
 });
 
@@ -93,7 +97,7 @@ describe("habit colours", () => {
     const hues = () => ids.map((id) => doc(h).habits[id]!.hue);
     const before = hues();
     expect(new Set(before).size).toBe(3);
-    moveHabit(h, ids[2]!, -1);
+    moveHabit(h, ids[2]!, 0);
     expect(hues()).toEqual(before);
   });
 });

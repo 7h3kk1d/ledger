@@ -2,22 +2,21 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import preact from "@preact/preset-vite";
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [preact()],
   resolve: {
-    alias: [
-      // The default browser entry needs wasm ESM integration; the base64
-      // build registers the wasm API without any extra bundler plugins.
-      {
-        find: /^@automerge\/automerge$/,
-        replacement: fileURLToPath(
-          import.meta.resolve("@automerge/automerge/automerge.wasm.base64"),
-        ).replace(
-          /wasm_bindgen_output\/web\/automerge_wasm_bg_base64\.js$/,
-          "entrypoints/fullfat_base64.js",
-        ),
-      },
-    ],
+    alias:
+      mode === "test"
+        ? []
+        : [
+            // In the app every import of Automerge gets the slim build, which
+            // leaves loading the wasm to src/boot.ts. (Tests run under node,
+            // whose default entry loads it itself.)
+            {
+              find: /^@automerge\/automerge$/,
+              replacement: fileURLToPath(import.meta.resolve("@automerge/automerge/slim")),
+            },
+          ],
   },
   // automerge ships wasm; keep it out of dep pre-bundling
   optimizeDeps: { exclude: ["@automerge/automerge"] },
@@ -28,4 +27,4 @@ export default defineConfig({
   },
   build: { target: "es2022" },
   test: { environment: "node" },
-});
+}));

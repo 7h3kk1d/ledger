@@ -1,4 +1,5 @@
-import { useMemo, useState } from "preact/hooks";
+import { useMemo, useRef, useState } from "preact/hooks";
+import type { TargetedPointerEvent } from "preact";
 import type { DocHandle } from "@automerge/automerge-repo";
 import type { Habit, LedgerDoc } from "../../model/types";
 import {
@@ -41,6 +42,8 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const [page, setPage] = useState(0);
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const reorder = useReorder(gridRef, (from, to) => moveHabit(handle, habits[from]!.id, to));
 
   const idx = useMemo(() => doneIndex(doc), [doc]);
   const end = shiftDate(today, -DAYS * page);
@@ -67,7 +70,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
       {habits.length === 0 ? (
         <p class="empty">No habits yet. Add one to start tracking.</p>
       ) : (
-        <div class="grid" style={{ "--cols": DAYS }}>
+        <div ref={gridRef} class={reorder.active ? "grid reordering" : "grid"} style={{ "--cols": DAYS }}>
           <div class="grid-head">
             <span />
             {days.map((d) => (
@@ -78,14 +81,33 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
             ))}
             <span class="streak-h">Streak</span>
           </div>
-          {habits.map((h) => {
+          {habits.map((h, i) => {
             const streak = habitStreak(idx, h, today);
             return (
-              <div class="grid-row" key={h.id} style={{ "--h": habitHue(h) }}>
-                <button class="habit-name" onClick={() => setEditingId(h.id)}>
-                  <span class="dot" />
-                  <span>{h.name}</span>
-                </button>
+              <div
+                class={reorder.isDragged(i) ? "grid-row dragging" : "grid-row"}
+                key={h.id}
+                style={{ "--h": habitHue(h), transform: reorder.offset(i) }}
+              >
+                <span class="habit-cell">
+                  <button
+                    class="grip"
+                    aria-label={`Reorder ${h.name} (arrow keys)`}
+                    onPointerDown={(e) => reorder.start(e, i)}
+                    onKeyDown={(e) => {
+                      const to = e.key === "ArrowUp" ? i - 1 : e.key === "ArrowDown" ? i + 1 : -1;
+                      if (to < 0 || to >= habits.length) return;
+                      e.preventDefault();
+                      moveHabit(handle, h.id, to);
+                    }}
+                  >
+                    <Grip />
+                  </button>
+                  <button class="habit-name" onClick={() => setEditingId(h.id)}>
+                    <span class="dot" />
+                    <span>{h.name}</span>
+                  </button>
+                </span>
                 {days.map((d) => {
                   const done = isDone(idx, h, d);
                   const isToday = d === today;
@@ -128,10 +150,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
       {editing && (
         <EditHabit
           habit={editing}
-          isFirst={habits[0]?.id === editing.id}
-          isLast={habits[habits.length - 1]?.id === editing.id}
           onClose={() => setEditingId(null)}
-          onMove={(dir) => moveHabit(handle, editing.id, dir)}
           onSave={(name, hue) => {
             if (name !== editing.name) renameHabit(handle, editing.id, name);
             if (hue !== habitHue(editing)) setHabitHue(handle, editing.id, hue);
@@ -163,6 +182,68 @@ export const Check = () => (
   </svg>
 );
 
+const Grip = () => (
+  <svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true" fill="currentColor">
+    {[3, 8, 13].flatMap((y) => [2.5, 7.5].map((x) => <circle key={`${x},${y}`} cx={x} cy={y} r="1.4" />))}
+  </svg>
+);
+
+type Drag = { from: number; to: number; dy: number; height: number };
+
+/**
+ * Drag-to-reorder for the grid rows: press a row's grip and move it. The
+ * dragged row follows the pointer and the rows it passes slide out of the
+ * way; nothing changes in the doc until it's dropped.
+ */
+function useReorder(gridRef: { current: HTMLElement | null }, onDrop: (from: number, to: number) => void) {
+  const [drag, setDrag] = useState<Drag | null>(null);
+
+  const start = (e: TargetedPointerEvent<HTMLElement>, from: number) => {
+    if (e.button !== 0 || !gridRef.current) return;
+    e.preventDefault();
+    const grip = e.currentTarget;
+    grip.setPointerCapture(e.pointerId);
+    const rows = [...gridRef.current.querySelectorAll<HTMLElement>(":scope > .grid-row")];
+    const mids = rows.map((r) => {
+      const b = r.getBoundingClientRect();
+      return b.top + b.height / 2;
+    });
+    const height = rows[from]!.getBoundingClientRect().height;
+    const startY = e.clientY;
+    let current: Drag = { from, to: from, dy: 0, height };
+    setDrag(current);
+
+    const move = (ev: PointerEvent) => {
+      const dy = ev.clientY - startY;
+      const centre = mids[from]! + dy;
+      const to = mids.filter((m, k) => k !== from && m < centre).length;
+      current = { from, to, dy, height };
+      setDrag(current);
+    };
+    const end = (ev: PointerEvent) => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", end);
+      grip.removeEventListener("pointercancel", end);
+      if (ev.type === "pointerup" && current.to !== current.from) onDrop(current.from, current.to);
+      setDrag(null);
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", end);
+    grip.addEventListener("pointercancel", end);
+  };
+
+  const offset = (i: number) => {
+    if (!drag) return undefined;
+    const { from, to, dy, height } = drag;
+    if (i === from) return `translateY(${dy}px)`;
+    if (from < to && i > from && i <= to) return `translateY(${-height}px)`;
+    if (to < from && i >= to && i < from) return `translateY(${height}px)`;
+    return undefined;
+  };
+
+  return { active: drag !== null, start, offset, isDragged: (i: number) => drag?.from === i };
+}
+
 function TodaySummary({ done, total }: { done: number; total: number }) {
   const r = 26;
   const c = 2 * Math.PI * r;
@@ -187,10 +268,7 @@ function TodaySummary({ done, total }: { done: number; total: number }) {
 
 function EditHabit(props: {
   habit: Habit;
-  isFirst: boolean;
-  isLast: boolean;
   onClose: () => void;
-  onMove: (dir: -1 | 1) => void;
   onSave: (name: string, hue: number) => void;
   onArchive: () => void;
 }) {
@@ -221,10 +299,6 @@ function EditHabit(props: {
             />
           ))}
         </fieldset>
-        <div class="row">
-          <button type="button" disabled={props.isFirst} onClick={() => props.onMove(-1)}>↑ Move up</button>
-          <button type="button" disabled={props.isLast} onClick={() => props.onMove(1)}>↓ Move down</button>
-        </div>
         <footer>
           <button type="button" class="danger" onClick={props.onArchive}>Archive</button>
           <span class="grow" />

@@ -1,4 +1,3 @@
-import "@automerge/automerge";
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { DocHandle } from "@automerge/automerge-repo";
