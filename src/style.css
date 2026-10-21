@@ -189,7 +189,34 @@ button.habit-name {
 }
 button.habit-name:hover { background: var(--surface-2); }
 .sched { display: block; color: var(--muted); font-size: .72rem; font-weight: 400; line-height: 1.2; }
-.cell.rest:not(.done) { background: transparent; border: 1.5px dashed var(--border); }
+.cell.rest { background: transparent; border: 1.5px dashed var(--border); }
+/* days an earlier check-in takes care of: the check-in's circle stretches
+   right, its top and bottom edges running on as faint lines until the habit
+   is due again, fading out on the last covered day */
+.cell-wrap { position: relative; }
+/* from-left / to-right: the outline reaches the cell's left / right edge
+   (past it, into the column gap); a covered day spans the whole cell */
+.cell-wrap.covered::before, .cell-wrap.from-left::before, .cell-wrap.to-right::before {
+  content: ""; position: absolute; top: 50%; left: 50%; right: 50%;
+  height: var(--cell-size); transform: translateY(-50%); box-sizing: border-box;
+  border-block: 1.5px solid color-mix(in srgb, var(--habit) 45%, var(--surface));
+  /* opaque, so it doesn't darken where neighbouring cells overlap */
+  background: color-mix(in srgb, var(--habit) 13%, var(--surface));
+  pointer-events: none;
+}
+.cell-wrap.covered::before, .cell-wrap.from-left::before { left: 0; }
+.cell-wrap.covered::before { right: 0; }
+.cell-wrap.to-right::before { right: -.2rem; }
+.cell-wrap.ends::before {
+  -webkit-mask-image: linear-gradient(to right, #000 20%, transparent 90%);
+  mask-image: linear-gradient(to right, #000 20%, transparent 90%);
+}
+.cell-wrap > .cell { position: relative; z-index: 1; }
+.cell.covered { background: transparent; }
+/* a covered day can still be checked in: show its circle on hover */
+.cell.covered:hover { background: color-mix(in srgb, var(--habit) 32%, var(--surface)); border-color: var(--habit); }
+/* past an interval habit's due date */
+.cell.late, .cell.late.today:not(.done) { border: 1.5px dashed var(--danger); background: color-mix(in srgb, var(--danger) 8%, transparent); }
 .dot { width: .6rem; height: .6rem; border-radius: 50%; background: var(--habit); flex: none; }
 
 /* today column band */
@@ -197,8 +224,9 @@ button.habit-name:hover { background: var(--surface-2); }
 .cell-wrap.today, .grid-head .day.today { background: color-mix(in srgb, var(--accent) 7%, transparent); }
 .grid-head .day.today { border-radius: 10px 10px 0 0; align-self: stretch; padding-top: .2rem; }
 
+.grid { --cell-size: 2.3rem; }
 .cell {
-  width: 2.3rem; height: 2.3rem; padding: 0; border-radius: 50%;
+  width: var(--cell-size); height: var(--cell-size); padding: 0; border-radius: 50%;
   display: grid; place-items: center;
   background: var(--surface-2); border: 1.5px solid transparent; color: #fff;
 }
@@ -214,7 +242,7 @@ button.habit-name:hover { background: var(--surface-2); }
   main { padding-left: .75rem; padding-right: .75rem; }
   .grid { padding: .3rem .4rem; }
   .grid-head, .grid-row { grid-template-columns: minmax(0, 1fr) repeat(var(--cols), 2.6rem) 2.6rem; column-gap: 0; }
-  .cell { width: 2.2rem; height: 2.2rem; }
+  .grid { --cell-size: 2.2rem; }
   button.habit-name { font-size: .92rem; }
   .streak { font-size: .8rem; }
 }
@@ -262,8 +290,10 @@ dialog .row > button { flex: 1; }
 dialog footer { display: flex; align-items: center; gap: .5rem; margin-top: .3rem; }
 .schedule { border: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .5rem; }
 .schedule legend { font-size: .85rem; color: var(--muted); margin-bottom: .35rem; padding: 0; }
-.schedule label.inline { flex-direction: row; align-items: center; gap: .5rem; color: var(--muted); font-size: .9rem; }
-.schedule label.inline input { width: 4.5rem; flex: none; }
+.schedule .amount { display: flex; align-items: center; gap: .5rem; color: var(--muted); font-size: .9rem; }
+.schedule .amount input { width: 4.5rem; flex: none; }
+.schedule .amount select { flex: 1; }
+.schedule .hint { color: var(--muted); font-size: .8rem; }
 .weekdays { display: flex; gap: .3rem; }
 .weekdays button { flex: 1; padding: .45rem 0; min-width: 0; }
 .weekdays button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }

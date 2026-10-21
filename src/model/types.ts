@@ -22,17 +22,19 @@ export interface EventType {
   name: string;
 }
 
+export type TimeUnit = "day" | "week" | "month" | "year";
+/** A calendar period; weeks run Sunday to Saturday. */
+export type PeriodUnit = Exclude<TimeUnit, "day">;
+
 /** How often a habit is meant to be done. */
 export type Expectation =
   | { kind: "daily" }
   /** Only on these days of the week (0 = Sunday). */
   | { kind: "weekdays"; days: number[] }
-  /** Again `days` days after the last time. */
-  | { kind: "every"; days: number }
-  /** `times` days in each Sunday-to-Saturday week. */
-  | { kind: "perWeek"; times: number }
-  /** `times` days in each calendar month. */
-  | { kind: "perMonth"; times: number };
+  /** Again `n` units after the last time (rolling). */
+  | { kind: "every"; n: number; unit: TimeUnit }
+  /** `times` days in each calendar week, month or year. */
+  | { kind: "per"; times: number; unit: PeriodUnit };
 
 export interface Habit {
   id: string;

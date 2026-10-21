@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "preact/hooks";
 import type { TargetedPointerEvent } from "preact";
 import type { DocHandle } from "@automerge/automerge-repo";
-import type { Expectation, Habit, LedgerDoc } from "../../model/types";
+import type { Expectation, Habit, LedgerDoc, PeriodUnit, TimeUnit } from "../../model/types";
 import {
   activeHabits,
   archivedHabits,
@@ -15,12 +15,16 @@ import {
 import {
   countsOn,
   DAILY,
+  dayState,
+  expectationOf,
+  PERIOD_DAYS,
+  PERIOD_UNITS,
   habitStreak,
   isDue,
-  isScheduled,
   progress,
   scheduleLabel,
   streakUnit,
+  TIME_UNITS,
   WEEKDAYS,
 } from "../../model/schedule";
 import {
@@ -96,6 +100,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
           </div>
           {habits.map((h, i) => {
             const streak = habitStreak(idx, h, today);
+            const exp = expectationOf(h);
             return (
               <div
                 class={reorder.isDragged(i) ? "grid-row dragging" : "grid-row"}
@@ -120,9 +125,9 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
                     <span class="dot" />
                     <span>
                       {h.name}
-                      {h.expectation.kind !== "daily" && (
+                      {exp.kind !== "daily" && (
                         <small class="sched">
-                          {scheduleLabel(h.expectation)}
+                          {scheduleLabel(exp)}
                           {progress(idx, h, today) && <> · {progress(idx, h, today)}</>}
                         </small>
                       )}
@@ -130,16 +135,29 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
                   </button>
                 </span>
                 {days.map((d) => {
-                  const done = isDone(idx, h, d);
+                  const state = dayState(idx, h, d);
+                  const done = state === "done";
                   const isToday = d === today;
                   const due = isToday && isDue(idx, h, d);
-                  const rest = !isScheduled(h, d);
+                  // Interval and per-period habits: a check-in's circle stretches
+                  // over the days it covers and runs into the next check-in if
+                  // that came in time; it fades out if the cover ran out first.
+                  const linked = exp.kind === "every" || exp.kind === "per";
+                  const kept = (s?: string) => s === "covered" || s === "done";
+                  const next = linked && d < today ? dayState(idx, h, shiftDate(d, 1)) : undefined;
+                  const prev = linked && done ? dayState(idx, h, shiftDate(d, -1)) : undefined;
+                  const span = [
+                    state === "covered" && "covered",
+                    done && kept(prev) && "from-left",
+                    kept(state) && kept(next) && "to-right",
+                    state === "covered" && next !== undefined && !kept(next) && "ends",
+                  ].filter(Boolean).join(" ");
                   return (
-                    <span key={d} class={isToday ? "cell-wrap today" : "cell-wrap"}>
+                    <span key={d} class={`cell-wrap${isToday ? " today" : ""}${span ? ` ${span}` : ""}`}>
                       <button
-                        class={`cell${done ? " done" : ""}${due ? " today" : ""}${rest ? " rest" : ""}`}
+                        class={`cell ${state}${due ? " today" : ""}`}
                         aria-pressed={done}
-                        aria-label={`${h.name}, ${longDate(d)}`}
+                        aria-label={`${h.name}, ${longDate(d)}${state === "covered" ? " (covered)" : state === "late" ? " (late)" : ""}`}
                         onClick={() => toggleHabit(handle, h, d)}
                       >
                         {done && <Check />}
@@ -148,7 +166,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
                   );
                 })}
                 <span class={streak > 0 ? "streak on" : "streak"}>
-                  {streak > 0 ? <>🔥 {streak}{streakUnit(h.expectation)}</> : "–"}
+                  {streak > 0 ? <>🔥 {streak}{streakUnit(exp)}</> : "–"}
                 </span>
               </div>
             );
@@ -300,7 +318,7 @@ function EditHabit(props: {
 }) {
   const [name, setName] = useState(props.habit.name);
   const [hue, setHue] = useState(habitHue(props.habit));
-  const [expectation, setExpectation] = useState<Expectation>(props.habit.expectation);
+  const [expectation, setExpectation] = useState<Expectation>(expectationOf(props.habit));
   return (
     <Modal title="Edit habit" onClose={props.onClose}>
       <form
@@ -364,24 +382,22 @@ function AddHabit(props: { onClose: () => void; onAdd: (name: string, expectatio
 const KINDS: { kind: Expectation["kind"]; label: string; initial: Expectation }[] = [
   { kind: "daily", label: "Every day", initial: DAILY },
   { kind: "weekdays", label: "On certain days", initial: { kind: "weekdays", days: [1, 3, 5] } },
-  { kind: "perWeek", label: "Times a week", initial: { kind: "perWeek", times: 3 } },
-  { kind: "perMonth", label: "Times a month", initial: { kind: "perMonth", times: 2 } },
-  { kind: "every", label: "Every few days", initial: { kind: "every", days: 7 } },
+  { kind: "per", label: "Times per…", initial: { kind: "per", times: 3, unit: "week" } },
+  { kind: "every", label: "Every…", initial: { kind: "every", n: 2, unit: "week" } },
 ];
+
+const plural = (unit: string, n: number) => (n === 1 ? unit : `${unit}s`);
 
 function ScheduleField(props: { value: Expectation; onChange: (e: Expectation) => void }) {
   const e = props.value;
-  const number = (value: number, min: number, max: number, set: (n: number) => void, suffix: string) => (
-    <label class="inline">
-      <input
-        type="number" inputMode="numeric" min={min} max={max} value={value}
-        onInput={(ev) => {
-          const n = Math.round(Number(ev.currentTarget.value));
-          if (n >= min && n <= max) set(n);
-        }}
-      />
-      {suffix}
-    </label>
+  const number = (value: number, min: number, max: number, set: (n: number) => void) => (
+    <input
+      type="number" inputMode="numeric" min={min} max={max} value={value} aria-label="Amount"
+      onInput={(ev) => {
+        const n = Math.round(Number(ev.currentTarget.value));
+        if (n >= min && n <= max) set(n);
+      }}
+    />
   );
   return (
     <fieldset class="schedule">
@@ -409,9 +425,32 @@ function ScheduleField(props: { value: Expectation; onChange: (e: Expectation) =
           })}
         </div>
       )}
-      {e.kind === "perWeek" && number(e.times, 1, 7, (times) => props.onChange({ kind: "perWeek", times }), "times each week (Sun–Sat)")}
-      {e.kind === "perMonth" && number(e.times, 1, 31, (times) => props.onChange({ kind: "perMonth", times }), "times each month")}
-      {e.kind === "every" && number(e.days, 2, 365, (days) => props.onChange({ kind: "every", days }), "days after the last time")}
+      {e.kind === "per" && (
+        <div class="amount">
+          {number(e.times, 1, PERIOD_DAYS[e.unit], (times) => props.onChange({ ...e, times }))}
+          <span>{plural("time", e.times)} per</span>
+          <select
+            value={e.unit}
+            onChange={(ev) => {
+              const unit = ev.currentTarget.value as PeriodUnit;
+              props.onChange({ kind: "per", unit, times: Math.min(e.times, PERIOD_DAYS[unit]) });
+            }}
+          >
+            {PERIOD_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+          </select>
+        </div>
+      )}
+      {e.kind === "per" && <small class="hint">Calendar {e.unit}s{e.unit === "week" ? ", Sunday to Saturday" : ""}.</small>}
+      {e.kind === "every" && (
+        <div class="amount">
+          <span>Every</span>
+          {number(e.n, 1, 365, (n) => props.onChange({ ...e, n }))}
+          <select value={e.unit} onChange={(ev) => props.onChange({ ...e, unit: ev.currentTarget.value as TimeUnit })}>
+            {TIME_UNITS.map((u) => <option key={u} value={u}>{plural(u, e.n)}</option>)}
+          </select>
+        </div>
+      )}
+      {e.kind === "every" && <small class="hint">Counted from the last time, so doing it early or late moves the next one.</small>}
     </fieldset>
   );
 }

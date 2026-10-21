@@ -2,9 +2,36 @@
 // streak counts, and how to describe it. Weeks run Sunday to Saturday, like
 // the calendar.
 import { doneDates, isDone, shiftDate, type DoneIndex } from "./reduce";
-import type { Expectation, Habit } from "./types";
+import type { Expectation, Habit, PeriodUnit, TimeUnit } from "./types";
 
 export const DAILY: Expectation = { kind: "daily" };
+
+export const TIME_UNITS: TimeUnit[] = ["day", "week", "month", "year"];
+export const PERIOD_UNITS: PeriodUnit[] = ["week", "month", "year"];
+/** Most check-ins a period can hold (one a day). */
+export const PERIOD_DAYS: Record<PeriodUnit, number> = { week: 7, month: 31, year: 366 };
+
+const valid = (e: Expectation | undefined): boolean => {
+  switch (e?.kind) {
+    case "daily":
+      return true;
+    case "weekdays":
+      return Array.isArray(e.days) && e.days.length > 0;
+    case "every":
+      return e.n >= 1 && TIME_UNITS.includes(e.unit);
+    case "per":
+      return e.times >= 1 && PERIOD_UNITS.includes(e.unit);
+    default:
+      return false;
+  }
+};
+
+/**
+ * The habit's expectation, or daily if it has a shape this build doesn't
+ * know (written by an older or newer build). Read it through here.
+ */
+export const expectationOf = (habit: Habit): Expectation =>
+  valid(habit.expectation) ? habit.expectation : DAILY;
 
 /** 0 = Sunday … 6 = Saturday. */
 export const dayOfWeek = (date: string) => new Date(`${date}T00:00`).getDay();
@@ -16,18 +43,36 @@ const toUtc = (date: string) => {
 /** Whole days from `a` to `b`. */
 export const daysBetween = (a: string, b: string) => Math.round((toUtc(b) - toUtc(a)) / 86_400_000);
 
-const weekStart = (date: string) => shiftDate(date, -dayOfWeek(date));
-const monthStart = (date: string) => `${date.slice(0, 7)}-01`;
-const nextMonth = (start: string) => {
-  const [y, m] = start.split("-").map(Number) as [number, number];
-  return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`;
-};
+/** `n` months later, on the same day of the month or the month's last day. */
+function addMonths(date: string, n: number): string {
+  const [y, m, d] = date.split("-").map(Number) as [number, number, number];
+  const months = y * 12 + (m - 1) + n;
+  const yy = Math.floor(months / 12);
+  const mm = (months % 12) + 1;
+  const last = new Date(yy, mm, 0).getDate();
+  const p = (x: number) => String(x).padStart(2, "0");
+  return `${yy}-${p(mm)}-${p(Math.min(d, last))}`;
+}
 
-type Period = { start: (date: string) => string; next: (start: string) => string; times: number };
-function period(e: Expectation): Period | undefined {
-  if (e.kind === "perWeek") return { start: weekStart, next: (s) => shiftDate(s, 7), times: e.times };
-  if (e.kind === "perMonth") return { start: monthStart, next: nextMonth, times: e.times };
-  return undefined;
+/** `date` moved on by `n` of `unit`. */
+export function addUnits(date: string, n: number, unit: TimeUnit): string {
+  switch (unit) {
+    case "day":
+      return shiftDate(date, n);
+    case "week":
+      return shiftDate(date, 7 * n);
+    case "month":
+      return addMonths(date, n);
+    case "year":
+      return addMonths(date, 12 * n);
+  }
+}
+
+/** First day of the calendar week, month or year containing `date`. */
+function periodStart(date: string, unit: PeriodUnit): string {
+  if (unit === "week") return shiftDate(date, -dayOfWeek(date));
+  if (unit === "month") return `${date.slice(0, 7)}-01`;
+  return `${date.slice(0, 4)}-01-01`;
 }
 
 /** Done days in [from, to), both local dates. */
@@ -44,13 +89,13 @@ function lastBefore(idx: DoneIndex, habit: Habit, date: string): string | undefi
  * days out; the other kinds can be done on any day.
  */
 export function isScheduled(habit: Habit, date: string): boolean {
-  const e = habit.expectation;
+  const e = expectationOf(habit);
   return e.kind !== "weekdays" || e.days.includes(dayOfWeek(date));
 }
 
 /** Whether the habit still needs doing on `date`, ignoring a check-in that day. */
 export function isDue(idx: DoneIndex, habit: Habit, date: string): boolean {
-  const e = habit.expectation;
+  const e = expectationOf(habit);
   switch (e.kind) {
     case "daily":
       return true;
@@ -58,33 +103,51 @@ export function isDue(idx: DoneIndex, habit: Habit, date: string): boolean {
       return e.days.includes(dayOfWeek(date));
     case "every": {
       const last = lastBefore(idx, habit, date);
-      return !last || daysBetween(last, date) >= e.days;
+      return !last || date >= addUnits(last, e.n, e.unit);
     }
-    case "perWeek":
-    case "perMonth": {
-      const p = period(e)!;
-      return countBetween(doneDates(idx, habit), p.start(date), date) < p.times;
-    }
+    case "per":
+      return countBetween(doneDates(idx, habit), periodStart(date, e.unit), date) < e.times;
   }
+}
+
+/**
+ * How a day looks for a habit:
+ * - done: checked in
+ * - rest: a fixed weekday habit's day off
+ * - covered: not needed, an earlier check-in takes care of it (inside an
+ *   interval, or after the period's target is met)
+ * - late: past an interval habit's due date
+ * - open: expected and not done yet
+ */
+export type DayState = "done" | "rest" | "covered" | "late" | "open";
+
+export function dayState(idx: DoneIndex, habit: Habit, date: string): DayState {
+  if (isDone(idx, habit, date)) return "done";
+  const e = expectationOf(habit);
+  if (e.kind === "weekdays") return isScheduled(habit, date) ? "open" : "rest";
+  if (!isDue(idx, habit, date)) return "covered";
+  if (e.kind === "every") {
+    const last = lastBefore(idx, habit, date);
+    if (last && date > addUnits(last, e.n, e.unit)) return "late";
+  }
+  return "open";
 }
 
 /** Whether the habit belongs in the day's to-do count: due, or done anyway. */
 export const countsOn = (idx: DoneIndex, habit: Habit, date: string) =>
   isDone(idx, habit, date) || isDue(idx, habit, date);
 
-/** "2/3 this week" for period habits; "due", "in 3d" or "2d late" for intervals. */
+/** "2/3 this week" for period habits; "due", "next in 3d" or "2d late" for intervals. */
 export function progress(idx: DoneIndex, habit: Habit, today: string): string | undefined {
-  const e = habit.expectation;
-  const p = period(e);
-  if (p) {
-    const n = countBetween(doneDates(idx, habit), p.start(today), shiftDate(today, 1));
-    return `${n}/${p.times} this ${e.kind === "perWeek" ? "week" : "month"}`;
+  const e = expectationOf(habit);
+  if (e.kind === "per") {
+    const n = countBetween(doneDates(idx, habit), periodStart(today, e.unit), shiftDate(today, 1));
+    return `${n}/${e.times} this ${e.unit}`;
   }
   if (e.kind === "every") {
-    if (isDone(idx, habit, today)) return `next in ${e.days}d`;
-    const last = lastBefore(idx, habit, today);
+    const last = isDone(idx, habit, today) ? today : lastBefore(idx, habit, today);
     if (!last) return "due";
-    const left = e.days - daysBetween(last, today);
+    const left = daysBetween(today, addUnits(last, e.n, e.unit));
     return left > 0 ? `next in ${left}d` : left === 0 ? "due" : `${-left}d late`;
   }
   return undefined;
@@ -96,7 +159,7 @@ export function progress(idx: DoneIndex, habit: Habit, today: string): string | 
  * target, an interval not over.
  */
 export function habitStreak(idx: DoneIndex, habit: Habit, today: string): number {
-  const e = habit.expectation;
+  const e = expectationOf(habit);
   const dates = doneDates(idx, habit).filter((d) => d <= today);
   if (dates.length === 0) return 0;
   const first = dates[0]!;
@@ -114,18 +177,17 @@ export function habitStreak(idx: DoneIndex, habit: Habit, today: string): number
       return n;
     }
     case "every": {
-      if (daysBetween(dates.at(-1)!, today) > e.days) return 0;
+      const inTime = (a: string, b: string) => b <= addUnits(a, e.n, e.unit);
+      if (!inTime(dates.at(-1)!, today)) return 0;
       let n = 1;
-      for (let i = dates.length - 1; i > 0 && daysBetween(dates[i - 1]!, dates[i]!) <= e.days; i--) n++;
+      for (let i = dates.length - 1; i > 0 && inTime(dates[i - 1]!, dates[i]!); i--) n++;
       return n;
     }
-    case "perWeek":
-    case "perMonth": {
-      const p = period(e)!;
-      const starts = periodStarts(p, first, today);
+    case "per": {
+      const starts = periodStarts(e.unit, first, today);
       let n = 0;
       for (let i = starts.length - 1; i >= 0; i--) {
-        const met = countBetween(dates, starts[i]!, p.next(starts[i]!)) >= p.times;
+        const met = countBetween(dates, starts[i]!, addUnits(starts[i]!, 1, e.unit)) >= e.times;
         if (met) n++;
         else if (i < starts.length - 1) break; // the current period may still get there
       }
@@ -136,7 +198,7 @@ export function habitStreak(idx: DoneIndex, habit: Habit, today: string): number
 
 /** The longest streak ever, in the same unit as habitStreak. */
 export function bestStreak(idx: DoneIndex, habit: Habit): number {
-  const e = habit.expectation;
+  const e = expectationOf(habit);
   const dates = doneDates(idx, habit);
   if (dates.length === 0) return 0;
   const first = dates[0]!;
@@ -156,28 +218,28 @@ export function bestStreak(idx: DoneIndex, habit: Habit): number {
     case "every":
       step(true);
       for (let i = 1; i < dates.length; i++) {
-        if (daysBetween(dates[i - 1]!, dates[i]!) > e.days) run = 0;
+        if (dates[i]! > addUnits(dates[i - 1]!, e.n, e.unit)) run = 0;
         step(true);
       }
       return best;
-    case "perWeek":
-    case "perMonth": {
-      const p = period(e)!;
-      for (const s of periodStarts(p, first, last)) step(countBetween(dates, s, p.next(s)) >= p.times);
+    case "per":
+      for (const s of periodStarts(e.unit, first, last))
+        step(countBetween(dates, s, addUnits(s, 1, e.unit)) >= e.times);
       return best;
-    }
   }
 }
 
-function periodStarts(p: Period, from: string, to: string): string[] {
+function periodStarts(unit: PeriodUnit, from: string, to: string): string[] {
   const out: string[] = [];
-  for (let s = p.start(from); s <= to; s = p.next(s)) out.push(s);
+  for (let s = periodStart(from, unit); s <= to; s = addUnits(s, 1, unit)) out.push(s);
   return out;
 }
 
 /** Short unit after a streak number: days for day-based habits. */
 export function streakUnit(e: Expectation): string {
-  return e.kind === "perWeek" ? "w" : e.kind === "perMonth" ? "mo" : e.kind === "every" ? "×" : "";
+  if (e.kind === "every") return "×";
+  if (e.kind === "per") return { week: "w", month: "mo", year: "y" }[e.unit];
+  return "";
 }
 
 export const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -189,10 +251,8 @@ export function scheduleLabel(e: Expectation): string {
     case "weekdays":
       return [...e.days].sort().map((d) => WEEKDAYS[d]).join(" ");
     case "every":
-      return `Every ${e.days} days`;
-    case "perWeek":
-      return `${e.times}× a week`;
-    case "perMonth":
-      return `${e.times}× a month`;
+      return e.n === 1 ? `Every ${e.unit}` : `Every ${e.n} ${e.unit}s`;
+    case "per":
+      return `${e.times}× a ${e.unit}`;
   }
 }

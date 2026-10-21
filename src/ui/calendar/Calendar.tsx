@@ -9,7 +9,7 @@ import {
   localDate,
   monthGrid,
 } from "../../model/reduce";
-import { bestStreak, habitStreak, isScheduled, streakUnit } from "../../model/schedule";
+import { bestStreak, expectationOf, habitStreak, isScheduled, streakUnit } from "../../model/schedule";
 import { toggleHabit } from "../../store/store";
 import { useDoc } from "../../store/useDoc";
 import { useToday } from "../hooks";
@@ -42,10 +42,11 @@ export function Calendar({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const elapsed = days.filter((d) => d.startsWith(month) && d <= today);
   const monthDone = habit ? elapsed.filter((d) => isDone(idx, habit, d)).length : 0;
   // a share of the days it was expected on, for habits tied to days
-  const dayBased = habit?.expectation.kind === "daily" || habit?.expectation.kind === "weekdays";
+  const kind = habit && expectationOf(habit).kind;
+  const dayBased = kind === "daily" || kind === "weekdays";
   const expected = habit ? elapsed.filter((d) => isScheduled(habit, d)) : [];
   const expectedDone = habit ? expected.filter((d) => isDone(idx, habit, d)).length : 0;
-  const unit = habit ? streakUnit(habit.expectation) : "";
+  const unit = habit ? streakUnit(expectationOf(habit)) : "";
 
   const onDay = (date: string) => {
     if (date > today) return;

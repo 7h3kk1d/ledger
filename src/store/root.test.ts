@@ -43,11 +43,11 @@ describe("root doc", () => {
     const { repo, ledger, root } = setup();
     const [floss, anki] = activeHabits(doc(ledger));
     setHabitExpectation(ledger, floss!.id, { kind: "weekdays", days: [1, 3] });
-    setHabitExpectation(ledger, anki!.id, { kind: "perWeek", times: 4 });
+    setHabitExpectation(ledger, anki!.id, { kind: "per", times: 4, unit: "week" });
     const next = rollover(repo, root, habitSeed(doc(ledger)), "reset");
     expect(activeHabits(doc(next)).map((h) => h.expectation)).toEqual([
       { kind: "weekdays", days: [1, 3] },
-      { kind: "perWeek", times: 4 },
+      { kind: "per", times: 4, unit: "week" },
       { kind: "daily" },
     ]);
   });

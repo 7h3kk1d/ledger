@@ -3,6 +3,8 @@ import type { DoneIndex } from "./reduce";
 import {
   bestStreak,
   countsOn,
+  dayState,
+  expectationOf,
   dayOfWeek,
   habitStreak,
   isDue,
@@ -37,7 +39,7 @@ describe("weekdays", () => {
 });
 
 describe("every N days", () => {
-  const weekly = habit({ kind: "every", days: 7 });
+  const weekly = habit({ kind: "every", n: 7, unit: "day" });
   it("is due again N days after the last time", () => {
     expect(isDue(done(), weekly, TODAY)).toBe(true);
     expect(isDue(done("2026-10-15"), weekly, TODAY)).toBe(false);
@@ -56,7 +58,7 @@ describe("every N days", () => {
 });
 
 describe("times per week", () => {
-  const thrice = habit({ kind: "perWeek", times: 3 });
+  const thrice = habit({ kind: "per", times: 3, unit: "week" });
   it("is due until the week's target is met", () => {
     expect(isDue(done("2026-10-18", "2026-10-19"), thrice, TODAY)).toBe(true);
     expect(isDue(done("2026-10-18", "2026-10-19", "2026-10-20"), thrice, TODAY)).toBe(false);
@@ -80,7 +82,7 @@ describe("times per week", () => {
 });
 
 describe("times per month", () => {
-  const twice = habit({ kind: "perMonth", times: 2 });
+  const twice = habit({ kind: "per", times: 2, unit: "month" });
   it("counts calendar months", () => {
     expect(isDue(done("2026-09-30", "2026-10-01"), twice, TODAY)).toBe(true);
     expect(isDue(done("2026-10-01", "2026-10-02"), twice, TODAY)).toBe(false);
@@ -93,6 +95,29 @@ describe("times per month", () => {
   });
 });
 
+describe("dayState", () => {
+  it("marks days an interval check-in covers, then late ones", () => {
+    const weekly = habit({ kind: "every", n: 7, unit: "day" });
+    const idx = done("2026-10-10");
+    expect(dayState(idx, weekly, "2026-10-10")).toBe("done");
+    expect(dayState(idx, weekly, "2026-10-16")).toBe("covered");
+    expect(dayState(idx, weekly, "2026-10-17")).toBe("open"); // due again
+    expect(dayState(idx, weekly, "2026-10-18")).toBe("late");
+    expect(dayState(done(), weekly, TODAY)).toBe("open"); // never done: just due
+  });
+  it("covers the rest of a period once its target is met", () => {
+    const monthly = habit({ kind: "per", times: 1, unit: "month" });
+    const idx = done("2026-10-03");
+    expect(dayState(idx, monthly, "2026-10-02")).toBe("open");
+    expect(dayState(idx, monthly, "2026-10-04")).toBe("covered");
+    expect(dayState(idx, monthly, "2026-11-01")).toBe("open");
+  });
+  it("rests on a weekday habit's days off and leaves daily habits open", () => {
+    expect(dayState(done(), habit({ kind: "weekdays", days: [0] }), TODAY)).toBe("rest");
+    expect(dayState(done(), habit({ kind: "daily" }), TODAY)).toBe("open");
+  });
+});
+
 describe("daily", () => {
   it("is always due and keeps its day streak", () => {
     const daily = habit({ kind: "daily" });
@@ -101,10 +126,43 @@ describe("daily", () => {
   });
 });
 
+describe("longer units", () => {
+  it("counts every-N weeks and months from the last time, month ends clamped", () => {
+    const fortnightly = habit({ kind: "every", n: 2, unit: "week" });
+    expect(isDue(done("2026-10-08"), fortnightly, TODAY)).toBe(false);
+    expect(isDue(done("2026-10-07"), fortnightly, TODAY)).toBe(true);
+    expect(progress(done("2026-10-10"), fortnightly, TODAY)).toBe("next in 3d");
+    const monthly = habit({ kind: "every", n: 1, unit: "month" });
+    expect(isDue(done("2026-09-22"), monthly, TODAY)).toBe(false);
+    expect(isDue(done("2026-09-21"), monthly, TODAY)).toBe(true);
+    // 31 Jan + 1 month is 28 Feb
+    expect(dayState(done("2026-01-31"), monthly, "2026-02-28")).toBe("open");
+    expect(dayState(done("2026-01-31"), monthly, "2026-02-27")).toBe("covered");
+    expect(dayState(done("2026-01-31"), monthly, "2026-03-01")).toBe("late");
+  });
+  it("counts times per calendar year", () => {
+    const yearly = habit({ kind: "per", times: 1, unit: "year" });
+    expect(isDue(done("2026-01-05"), yearly, TODAY)).toBe(false);
+    expect(isDue(done("2025-12-31"), yearly, TODAY)).toBe(true);
+    expect(progress(done("2026-01-05"), yearly, TODAY)).toBe("1/1 this year");
+    expect(habitStreak(done("2024-03-01", "2025-06-01"), yearly, TODAY)).toBe(2);
+  });
+});
+
+describe("expectationOf", () => {
+  it("treats a shape this build doesn't know as daily", () => {
+    const old = habit({ kind: "perMonth", times: 1 } as unknown as Expectation);
+    expect(isDue(done(TODAY), old, TODAY)).toBe(true);
+    expect(scheduleLabel(expectationOf(old))).toBe("Every day");
+  });
+});
+
 describe("scheduleLabel", () => {
   it("describes each kind", () => {
     expect(scheduleLabel({ kind: "weekdays", days: [5, 1, 3] })).toBe("Mon Wed Fri");
-    expect(scheduleLabel({ kind: "every", days: 10 })).toBe("Every 10 days");
-    expect(scheduleLabel({ kind: "perWeek", times: 3 })).toBe("3× a week");
+    expect(scheduleLabel({ kind: "every", n: 10, unit: "day" })).toBe("Every 10 days");
+    expect(scheduleLabel({ kind: "per", times: 3, unit: "week" })).toBe("3× a week");
+    expect(scheduleLabel({ kind: "every", n: 2, unit: "week" })).toBe("Every 2 weeks");
+    expect(scheduleLabel({ kind: "every", n: 1, unit: "month" })).toBe("Every month");
   });
 });
