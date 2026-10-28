@@ -4,6 +4,7 @@ import type { DocHandle } from "@automerge/automerge-repo";
 import { DATA_EPOCH, type LedgerDoc, type RootDoc } from "./model/types";
 import { previousDocs } from "./store/root";
 import {
+  configuredSignalsUrl,
   exportBackup,
   importBackup,
   LoadError,
@@ -18,6 +19,7 @@ import {
   type Ledger,
 } from "./store/store";
 import { useDoc } from "./store/useDoc";
+import { startSignals } from "./signals/useSignals";
 import { Habits } from "./ui/habits/Habits";
 import { Events } from "./ui/events/Events";
 import { Calendar } from "./ui/calendar/Calendar";
@@ -39,7 +41,11 @@ function App() {
   const [loadError, setLoadError] = useState<LoadError | Error>();
 
   useEffect(() => {
-    openLedger().then(setLedger, setLoadError);
+    openLedger().then((l) => {
+      // after openLedger: it reads /config.json, which names the signals service
+      startSignals(configuredSignalsUrl());
+      setLedger(l);
+    }, setLoadError);
   }, []);
 
   // follow the root: a reset or switch on any device swaps the doc here too

@@ -29,6 +29,8 @@ export class LoadError extends Error {
 
 interface Config {
   rootUrl?: AutomergeUrl;
+  /** The signals service (e.g. "/signals"); without it, habits use manual check-ins only. */
+  signalsUrl?: string;
 }
 
 /** /config.json (served from the cluster's ConfigMap), cached for offline starts. */
@@ -44,6 +46,16 @@ async function loadConfig(): Promise<Config> {
     // offline: fall back to the cached copy
   }
   return JSON.parse(localStorage.getItem(CONFIG_KEY) ?? "{}") as Config;
+}
+
+/** The signals service's url from the last /config.json read (openLedger reads it first). */
+export function configuredSignalsUrl(): string | undefined {
+  try {
+    const url = (JSON.parse(localStorage.getItem(CONFIG_KEY) ?? "{}") as Config).signalsUrl;
+    return typeof url === "string" && url ? url.replace(/\/$/, "") : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Docs this device hasn't stored yet have to come from the server. */

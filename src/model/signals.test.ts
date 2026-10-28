@@ -1,0 +1,148 @@
+import { describe, expect, it } from "vitest";
+import { displayOf, doneIndex, isDone, isExcused, localDate, manualDone, signalsOf } from "./reduce";
+import { bestStreak, countsOn, dayState, habitStreak, isDue, progress } from "./schedule";
+import {
+  mergeAnswer,
+  observationDate,
+  signalIndex,
+  type Observation,
+  type SignalData,
+} from "./signals";
+import type { Event, Expectation, Habit } from "./types";
+
+const TODAY = "2026-10-21";
+const S = "src/stream/acct"; // opaque to Ledger
+
+const day = (id: string, date: string, effect: Observation["effect"] = "satisfies"): Observation => ({
+  id,
+  occurred: { kind: "day", date },
+  effect,
+  metrics: {},
+});
+const data = (...observations: Observation[]): Map<string, SignalData> =>
+  new Map([[S, { observations, current: {} }]]);
+const habit = (expectation: Expectation = { kind: "daily" }, over: Partial<Habit> = {}): Habit => ({
+  id: "h",
+  name: "H",
+  eventTypeIds: ["t"],
+  expectation,
+  signals: [S],
+  ...over,
+});
+const manual = (date: string): Event => ({
+  id: `m-${date}`,
+  typeId: "t",
+  author: "local",
+  loggedAt: `${date}T12:00:00Z`,
+  occurred: { kind: "day", date },
+  attrs: {},
+});
+const index = (obs: Observation[], events: Event[] = []) =>
+  doneIndex({ events: Object.fromEntries(events.map((e) => [e.id, e])) }, signalIndex(data(...obs)));
+
+describe("observationDate", () => {
+  it("uses the source's own date for whole days", () => {
+    expect(observationDate(day("a", "2026-10-20"))).toBe("2026-10-20");
+  });
+  it("puts an instant on its local day", () => {
+    const at = "2026-10-21T03:30:00Z";
+    const o: Observation = { id: "a", occurred: { kind: "instant", at }, effect: "satisfies", metrics: {} };
+    expect(observationDate(o)).toBe(localDate(new Date(at)));
+  });
+  it("counts an interval on the day it ends", () => {
+    const start = "2026-10-20T23:00:00";
+    const end = "2026-10-21T07:00:00";
+    const o: Observation = { id: "a", occurred: { kind: "interval", start, end }, effect: "satisfies", metrics: {} };
+    expect(observationDate(o)).toBe(localDate(new Date(end)));
+  });
+});
+
+describe("mergeAnswer", () => {
+  const held: SignalData = { observations: [day("a", "2026-10-19"), day("b", "2026-10-20")], current: { streak: 4, xp: 10 }, freshAt: "t1" };
+  it("replaces everything on a complete answer", () => {
+    const m = mergeAnswer(held, { complete: true, current: { streak: 5 }, observations: [day("c", TODAY)], fresh_at: "t2" });
+    expect(m.observations.map((o) => o.id)).toEqual(["c"]);
+    expect(m.current).toEqual({ streak: 5 });
+    expect(m.freshAt).toBe("t2");
+  });
+  it("merges live observations by id on an incremental answer", () => {
+    const m = mergeAnswer(held, {
+      complete: false,
+      current: { streak: 5 },
+      observations: [day("b", "2026-10-20", "excuses"), day("c", TODAY)],
+    });
+    expect(m.observations.map((o) => [o.id, o.effect])).toEqual([
+      ["a", "satisfies"],
+      ["b", "excuses"],
+      ["c", "satisfies"],
+    ]);
+    expect(m.current).toEqual({ streak: 5, xp: 10 });
+    expect(m.freshAt).toBe("t1");
+  });
+});
+
+describe("habits backed by signals", () => {
+  it("counts a satisfying observation as done, and info as nothing", () => {
+    const idx = index([day("a", TODAY), day("b", "2026-10-20", "info")]);
+    expect(isDone(idx, habit(), TODAY)).toBe(true);
+    expect(manualDone(idx, habit(), TODAY)).toBe(false);
+    expect(isDone(idx, habit(), "2026-10-20")).toBe(false);
+    expect(dayState(idx, habit(), "2026-10-20")).toBe("open");
+  });
+  it("adds manual check-ins and signals together", () => {
+    const idx = index([day("a", "2026-10-20")], [manual(TODAY)]);
+    expect(habitStreak(idx, habit(), TODAY)).toBe(2);
+  });
+  it("ignores signals the habit doesn't link", () => {
+    const idx = index([day("a", TODAY)]);
+    expect(isDone(idx, habit(undefined, { signals: undefined }), TODAY)).toBe(false);
+  });
+  it("skips excused days in day-by-day streaks without breaking them", () => {
+    // 18 done, 19 excused (freeze), 20 done, 21 not yet
+    const idx = index([day("a", "2026-10-18"), day("b", "2026-10-19", "excuses"), day("c", "2026-10-20")]);
+    const h = habit();
+    expect(dayState(idx, h, "2026-10-19")).toBe("excused");
+    expect(isExcused(idx, h, "2026-10-19")).toBe(true);
+    expect(habitStreak(idx, h, TODAY)).toBe(2);
+    expect(bestStreak(idx, h)).toBe(2);
+    // without the excuse the 19th breaks it
+    expect(habitStreak(index([day("a", "2026-10-18"), day("c", "2026-10-20")]), h, TODAY)).toBe(1);
+  });
+  it("leaves an excused day out of what's due", () => {
+    const idx = index([day("b", TODAY, "excuses")]);
+    expect(isDue(idx, habit(), TODAY)).toBe(false);
+    expect(countsOn(idx, habit(), TODAY)).toBe(false);
+  });
+  it("lets a done day win over an excuse the same day", () => {
+    const idx = index([day("a", TODAY), day("b", TODAY, "excuses")]);
+    expect(dayState(idx, habit(), TODAY)).toBe("done");
+    expect(isExcused(idx, habit(), TODAY)).toBe(false);
+  });
+  it("applies any expectation to a sparse stream: every 6 months", () => {
+    const h = habit({ kind: "every", n: 6, unit: "month" });
+    // last service 2026-03-02: due 2026-09-02, 49 days ago
+    const late = index([day("oil", "2026-03-02")]);
+    expect(progress(late, h, TODAY)).toBe("49d late");
+    expect(dayState(late, h, TODAY)).toBe("late");
+    expect(isDue(late, h, TODAY)).toBe(true);
+    // last service 2026-08-01: next 2027-02-01
+    const fine = index([day("oil", "2026-08-01")]);
+    expect(progress(fine, h, TODAY)).toBe("next in 103d");
+    expect(dayState(fine, h, TODAY)).toBe("covered");
+  });
+});
+
+describe("habit fields from other builds", () => {
+  it("ignores malformed signal links and display settings", () => {
+    const h = habit(undefined, {
+      signals: [S, "", 3 as unknown as string],
+      display: {
+        streak: { signal: "not-linked", metric: "streak" },
+        metrics: [{ signal: S, metric: "xp" }, { signal: S } as unknown as { signal: string; metric: string }],
+      },
+    });
+    expect(signalsOf(h)).toEqual([S]);
+    expect(displayOf(h)).toEqual({ metrics: [{ signal: S, metric: "xp" }] });
+    expect(displayOf(habit(undefined, { display: "x" as unknown as Habit["display"] }))).toEqual({});
+  });
+});

@@ -8,6 +8,14 @@ Personal observability dashboard. This repo currently holds **Track A**: an appe
 - **Root doc:** a tiny doc `{ current, epoch, history }` that names the ledger doc every device uses. The app finds it through `/config.json` (`{ "rootUrl": "automerge:…" }`). A new device only has to open the URL.
 - **Reset** (⋯ → Reset data…): makes a new, empty ledger doc and points the root at it. You can keep the habit list. Every open device follows the switch live. The old doc is never deleted: ⋯ → Previous data switches back to it.
 - **`DATA_EPOCH`** (`src/model/types.ts`): bump it for a breaking schema change. Each client that loads finds the root at an older epoch and rolls over to a fresh doc (keeping habit names) instead of migrating. A client older than the root's epoch asks to reload.
+- **Linked data (signals):** a habit can also count data from other services, e.g. workouts from
+  Apple Health or Duolingo practice. Ledger reads them from the signals service named by
+  `signalsUrl` in `/config.json` (the collectors repo's `spec/signals.md`; `/signals` on the
+  cluster). Ledger never knows which service a signal is: a signal is a stream of observations
+  (when, and whether it *satisfies* or *excuses*), and the habit's own schedule decides what that
+  means, the same as for check-ins. Only the links are in the doc (`Habit.signals`,
+  `Habit.display`); observations are cached in IndexedDB. Without `signalsUrl` habits use check-ins
+  only.
 - Offline works: edits are kept locally and merge when the server is reachable again. The dot in the header shows whether the server is connected.
 
 ## Dev
@@ -17,7 +25,8 @@ nix develop
 pnpm install
 pnpm dev:sync                                  # sync server on :3030, data in .sync-data/
 pnpm bootstrap ws://localhost:3030 --write     # once: root + first doc, writes public/config.json
-pnpm dev                                       # http://localhost:5173 (proxies /sync to :3030)
+pnpm dev                                       # http://localhost:5173 (proxies /sync to :3030, /signals to :8765)
+SIGNALS_TARGET=https://ledger.home.abanduk.com pnpm dev   # or use the cluster's signals
 pnpm test
 pnpm build
 ```
@@ -42,6 +51,9 @@ It runs on the homelab k3s cluster (`homelab/cluster/apps/ledger/`, see its READ
 
 - Edits and deletes are appended (`amends` / tombstone), never destructive; `currentEvents` reduces the log.
 - Whole-day vs exact occurrence times; day boundary is local midnight to midnight.
+- A signal observation counts on its local day; an interval on the day it ends. Manual check-ins and
+  signals add together. An *excused* day (a linked signal's "skipped, and that's fine", like a
+  streak freeze) is left out of daily and weekday habits' streaks like a rest day.
 - No migrations: clients are only the owner's devices, so a breaking change bumps `DATA_EPOCH` instead.
 - **Backup:** the sync server's volume, plus Export in the UI. Import makes the imported doc current everywhere.
 - **Install it on your phone.** Safari clears site storage after 7 days without a visit unless the
@@ -52,4 +64,4 @@ It runs on the homelab k3s cluster (`homelab/cluster/apps/ledger/`, see its READ
 
 ## Out of scope for now
 
-Native clients, accounts/tagging/permissions, non-daily expectations, configurable day boundaries, per-person habit linking, Grafana/Track B.
+Native clients, accounts/tagging/permissions, configurable day boundaries, per-person habit linking, notes on days, expectations based on metrics (e.g. every 5,000 miles).

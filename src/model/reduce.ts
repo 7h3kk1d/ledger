@@ -1,4 +1,5 @@
-import type { Event, Habit, LedgerDoc, Occurred } from "./types";
+import type { SignalIndex } from "./signals";
+import type { Event, Habit, HabitDisplay, LedgerDoc, MetricRef, Occurred } from "./types";
 
 /** Local YYYY-MM-DD for a Date (midnight-to-midnight day boundary). */
 export function localDate(d: Date): string {
@@ -58,28 +59,77 @@ export function monthGrid(month: string): string[] {
   return dayRange(localDate(new Date(y, m - 1, weeks * 7 - lead)), weeks * 7);
 }
 
-/** Local dates with at least one live event, per event type id. */
-export type DoneIndex = Map<string, Set<string>>;
+/**
+ * Which local dates count for habits: the log's own events, and the
+ * observations of signals habits link to. Manual check-ins and signals add
+ * together; neither cancels the other.
+ */
+export interface DoneIndex {
+  /** Local dates with at least one live event, per event type id. */
+  types: Map<string, Set<string>>;
+  /** Linked signals' observations by local date, per signal id. */
+  signals: SignalIndex;
+}
 
 /** One pass over the log; views look dates up here instead of rescanning. */
-export function doneIndex(doc: Pick<LedgerDoc, "events">): DoneIndex {
-  const idx: DoneIndex = new Map();
+export function doneIndex(doc: Pick<LedgerDoc, "events">, signals: SignalIndex = new Map()): DoneIndex {
+  const types = new Map<string, Set<string>>();
   for (const e of currentEvents(doc)) {
-    let days = idx.get(e.typeId);
-    if (!days) idx.set(e.typeId, (days = new Set()));
+    let days = types.get(e.typeId);
+    if (!days) types.set(e.typeId, (days = new Set()));
     days.add(occurredDate(e.occurred));
   }
-  return idx;
+  return { types, signals };
+}
+
+const validId = (s: unknown): s is string => typeof s === "string" && s.length > 0;
+
+/** The habit's linked signal ids; anything malformed is ignored. */
+export const signalsOf = (habit: Habit): string[] =>
+  Array.isArray(habit.signals) ? habit.signals.filter(validId) : [];
+
+const validRef = (r: unknown): r is MetricRef =>
+  typeof r === "object" && r !== null && validId((r as MetricRef).signal) && validId((r as MetricRef).metric);
+
+/** The habit's display settings, keeping only well-formed references to its linked signals. */
+export function displayOf(habit: Habit): HabitDisplay {
+  const d = habit.display;
+  if (typeof d !== "object" || d === null) return {};
+  const linked = new Set(signalsOf(habit));
+  const ok = (r: unknown): r is MetricRef => validRef(r) && linked.has(r.signal);
+  const out: HabitDisplay = {};
+  if (ok(d.streak)) out.streak = d.streak;
+  if (Array.isArray(d.metrics)) {
+    const metrics = d.metrics.filter(ok);
+    if (metrics.length) out.metrics = metrics;
+  }
+  return out;
+}
+
+/** Checked in by hand that day (an event of the habit's own types). */
+export function manualDone(idx: DoneIndex, habit: Habit, date: string): boolean {
+  return habit.eventTypeIds.some((t) => idx.types.get(t)?.has(date));
+}
+
+/** A linked signal has an observation that satisfies the habit that day. */
+export function signalDone(idx: DoneIndex, habit: Habit, date: string): boolean {
+  return signalsOf(habit).some((s) => idx.signals.get(s)?.satisfied.has(date));
 }
 
 export function isDone(idx: DoneIndex, habit: Habit, date: string): boolean {
-  return habit.eventTypeIds.some((t) => idx.get(t)?.has(date));
+  return manualDone(idx, habit, date) || signalDone(idx, habit, date);
+}
+
+/** Not done, but a linked signal excuses the day (e.g. a streak freeze). */
+export function isExcused(idx: DoneIndex, habit: Habit, date: string): boolean {
+  return !isDone(idx, habit, date) && signalsOf(habit).some((s) => idx.signals.get(s)?.excused.has(date));
 }
 
 /** All done dates for a habit, sorted ascending. */
 export function doneDates(idx: DoneIndex, habit: Habit): string[] {
   const all = new Set<string>();
-  for (const t of habit.eventTypeIds) for (const d of idx.get(t) ?? []) all.add(d);
+  for (const t of habit.eventTypeIds) for (const d of idx.types.get(t) ?? []) all.add(d);
+  for (const s of signalsOf(habit)) for (const d of idx.signals.get(s)?.satisfied ?? []) all.add(d);
   return [...all].sort();
 }
 

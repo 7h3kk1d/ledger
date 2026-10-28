@@ -1,7 +1,7 @@
 // What a habit's expectation means on a given day: whether it's due, how its
 // streak counts, and how to describe it. Weeks run Sunday to Saturday, like
 // the calendar.
-import { doneDates, isDone, shiftDate, type DoneIndex } from "./reduce";
+import { doneDates, isDone, isExcused, shiftDate, type DoneIndex } from "./reduce";
 import type { Expectation, Habit, PeriodUnit, TimeUnit } from "./types";
 
 export const DAILY: Expectation = { kind: "daily" };
@@ -93,14 +93,21 @@ export function isScheduled(habit: Habit, date: string): boolean {
   return e.kind !== "weekdays" || e.days.includes(dayOfWeek(date));
 }
 
+/**
+ * Whether excuses (a linked signal's "knowingly skipped, and that's fine")
+ * apply to the habit. Only day-by-day habits for now: an excused day is left
+ * out like a rest day. Interval and per-period habits ignore them.
+ */
+const excusable = (e: Expectation) => e.kind === "daily" || e.kind === "weekdays";
+
 /** Whether the habit still needs doing on `date`, ignoring a check-in that day. */
 export function isDue(idx: DoneIndex, habit: Habit, date: string): boolean {
   const e = expectationOf(habit);
   switch (e.kind) {
     case "daily":
-      return true;
+      return !isExcused(idx, habit, date);
     case "weekdays":
-      return e.days.includes(dayOfWeek(date));
+      return e.days.includes(dayOfWeek(date)) && !isExcused(idx, habit, date);
     case "every": {
       const last = lastBefore(idx, habit, date);
       return !last || date >= addUnits(last, e.n, e.unit);
@@ -114,16 +121,18 @@ export function isDue(idx: DoneIndex, habit: Habit, date: string): boolean {
  * How a day looks for a habit:
  * - done: checked in
  * - rest: a fixed weekday habit's day off
+ * - excused: a linked signal excuses the day (day-by-day habits only)
  * - covered: not needed, an earlier check-in takes care of it (inside an
  *   interval, or after the period's target is met)
  * - late: past an interval habit's due date
  * - open: expected and not done yet
  */
-export type DayState = "done" | "rest" | "covered" | "late" | "open";
+export type DayState = "done" | "rest" | "excused" | "covered" | "late" | "open";
 
 export function dayState(idx: DoneIndex, habit: Habit, date: string): DayState {
   if (isDone(idx, habit, date)) return "done";
   const e = expectationOf(habit);
+  if (excusable(e) && isScheduled(habit, date) && isExcused(idx, habit, date)) return "excused";
   if (e.kind === "weekdays") return isScheduled(habit, date) ? "open" : "rest";
   if (!isDue(idx, habit, date)) return "covered";
   if (e.kind === "every") {
@@ -170,7 +179,8 @@ export function habitStreak(idx: DoneIndex, habit: Habit, today: string): number
       if (!isDone(idx, habit, day)) day = shiftDate(day, -1);
       let n = 0;
       for (; day >= first; day = shiftDate(day, -1)) {
-        if (!isScheduled(habit, day)) continue;
+        // days off and excused days neither add to the streak nor break it
+        if (!isScheduled(habit, day) || isExcused(idx, habit, day)) continue;
         if (!isDone(idx, habit, day)) break;
         n++;
       }
@@ -213,7 +223,7 @@ export function bestStreak(idx: DoneIndex, habit: Habit): number {
     case "daily":
     case "weekdays":
       for (let day = first; day <= last; day = shiftDate(day, 1))
-        if (isScheduled(habit, day)) step(isDone(idx, habit, day));
+        if (isScheduled(habit, day) && !isExcused(idx, habit, day)) step(isDone(idx, habit, day));
       return best;
     case "every":
       step(true);

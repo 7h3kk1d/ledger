@@ -47,6 +47,26 @@ export interface Habit {
   order?: number;
   /** Accent colour hue (0-360); derived from the id when unset. */
   hue?: number;
+  /**
+   * Signals (ids from the signals service, opaque) whose observations count
+   * for this habit alongside its own events. Read through `signalsOf`.
+   */
+  signals?: string[];
+  /** What to show from linked signals. Read through `displayOf`. */
+  display?: HabitDisplay;
+}
+
+/** A value a linked signal reports: its id and the metric's key. */
+export interface MetricRef {
+  signal: string;
+  metric: string;
+}
+
+export interface HabitDisplay {
+  /** Show this reported value as the streak instead of Ledger's own count. */
+  streak?: MetricRef;
+  /** Current values shown with the habit's name. */
+  metrics?: MetricRef[];
 }
 
 export interface LedgerDoc {

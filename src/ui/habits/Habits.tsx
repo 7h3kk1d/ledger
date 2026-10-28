@@ -1,17 +1,21 @@
 import { useMemo, useRef, useState } from "preact/hooks";
 import type { TargetedPointerEvent } from "preact";
 import type { DocHandle } from "@automerge/automerge-repo";
-import type { Expectation, Habit, LedgerDoc, PeriodUnit, TimeUnit } from "../../model/types";
+import type { Expectation, Habit, HabitDisplay, LedgerDoc, PeriodUnit, TimeUnit } from "../../model/types";
 import {
   activeHabits,
   archivedHabits,
   dayRange,
+  displayOf,
   doneIndex,
   habitHue,
   HUES,
   isDone,
+  manualDone,
   shiftDate,
+  signalsOf,
 } from "../../model/reduce";
+import { ago } from "../../model/signals";
 import {
   countsOn,
   DAILY,
@@ -33,9 +37,13 @@ import {
   setHabitExpectation,
   renameHabit,
   setHabitArchived,
+  setHabitDisplay,
   setHabitHue,
+  setHabitSignals,
   toggleHabit,
 } from "../../store/store";
+import { useSignals, type Signals } from "../../signals/useSignals";
+import { currentValue, DayDetail, excusedLabel, hasObservations, LinkedDataField } from "./SignalsUI";
 import { useDoc } from "../../store/useDoc";
 import { useMedia, useToday } from "../hooks";
 import { Modal } from "../Modal";
@@ -60,7 +68,10 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const gridRef = useRef<HTMLDivElement>(null);
   const reorder = useReorder(gridRef, (from, to) => moveHabit(handle, habits[from]!.id, to));
 
-  const idx = useMemo(() => doneIndex(doc), [doc]);
+  const signals = useSignals(doc);
+  const idx = useMemo(() => doneIndex(doc, signals.index), [doc, signals.index]);
+  const [detail, setDetail] = useState<{ habitId: string; date: string } | null>(null);
+  const detailHabit = detail ? doc.habits[detail.habitId] : undefined;
   const end = shiftDate(today, -DAYS * page);
   const days = dayRange(end, DAYS);
   const habits = activeHabits(doc);
@@ -81,6 +92,13 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
         <button class="ghost" aria-label="Later" disabled={page === 0} onClick={() => setPage(page - 1)}>›</button>
         {page > 0 && <button onClick={() => setPage(0)}>Today</button>}
         <span class="grow" />
+        {signals.state.error && habits.some((h) => signalsOf(h).length) && (
+          <small class="signals-stale" title={signals.state.error}>
+            {signals.state.lastOk
+              ? `Linked data from ${ago(new Date(signals.state.lastOk).toISOString())}`
+              : "Linked data unavailable"}
+          </small>
+        )}
         <button class="primary" onClick={() => setAdding(true)}>+ Habit</button>
       </div>
 
@@ -101,6 +119,15 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
           {habits.map((h, i) => {
             const streak = habitStreak(idx, h, today);
             const exp = expectationOf(h);
+            const disp = displayOf(h);
+            const reported = disp.streak ? currentValue(signals, disp.streak) : undefined;
+            const shown = (disp.metrics ?? []).flatMap((r) => currentValue(signals, r) ?? []);
+            const sub = [
+              exp.kind !== "daily" && scheduleLabel(exp),
+              exp.kind !== "daily" && progress(idx, h, today),
+              ...shown.map((m) => `${m.label} ${m.text}`),
+            ].filter(Boolean);
+            const linked = signalsOf(h).length > 0;
             return (
               <div
                 class={reorder.isDragged(i) ? "grid-row dragging" : "grid-row"}
@@ -125,12 +152,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
                     <span class="dot" />
                     <span>
                       {h.name}
-                      {exp.kind !== "daily" && (
-                        <small class="sched">
-                          {scheduleLabel(exp)}
-                          {progress(idx, h, today) && <> · {progress(idx, h, today)}</>}
-                        </small>
-                      )}
+                      {sub.length > 0 && <small class="sched">{sub.join(" · ")}</small>}
                     </span>
                   </button>
                 </span>
@@ -142,10 +164,10 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
                   // Interval and per-period habits: a check-in's circle stretches
                   // over the days it covers and runs into the next check-in if
                   // that came in time; it fades out if the cover ran out first.
-                  const linked = exp.kind === "every" || exp.kind === "per";
+                  const spans = exp.kind === "every" || exp.kind === "per";
                   const kept = (s?: string) => s === "covered" || s === "done";
-                  const next = linked && d < today ? dayState(idx, h, shiftDate(d, 1)) : undefined;
-                  const prev = linked && done ? dayState(idx, h, shiftDate(d, -1)) : undefined;
+                  const next = spans && d < today ? dayState(idx, h, shiftDate(d, 1)) : undefined;
+                  const prev = spans && done ? dayState(idx, h, shiftDate(d, -1)) : undefined;
                   const span = [
                     state === "covered" && "covered",
                     done && kept(prev) && "from-left",
@@ -155,19 +177,32 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
                   return (
                     <span key={d} class={`cell-wrap${isToday ? " today" : ""}${span ? ` ${span}` : ""}`}>
                       <button
-                        class={`cell ${state}${due ? " today" : ""}`}
+                        class={`cell ${state}${due ? " today" : ""}${done && !manualDone(idx, h, d) ? " linked" : ""}`}
                         aria-pressed={done}
-                        aria-label={`${h.name}, ${longDate(d)}${state === "covered" ? " (covered)" : state === "late" ? " (late)" : ""}`}
-                        onClick={() => toggleHabit(handle, h, d)}
+                        aria-label={`${h.name}, ${longDate(d)}${state === "covered" ? " (covered)" : state === "late" ? " (late)" : state === "excused" ? ` (${excusedLabel(signals, h)})` : ""}`}
+                        title={state === "excused" ? excusedLabel(signals, h) : undefined}
+                        // a day with data from linked signals opens its detail; others toggle a check-in
+                        onClick={() =>
+                          linked && (hasObservations(signals, h, d) || state === "excused")
+                            ? setDetail({ habitId: h.id, date: d })
+                            : toggleHabit(handle, h, d)
+                        }
                       >
                         {done && <Check />}
+                        {state === "excused" && <Excused />}
                       </button>
                     </span>
                   );
                 })}
-                <span class={streak > 0 ? "streak on" : "streak"}>
-                  {streak > 0 ? <>🔥 {streak}{streakUnit(exp)}</> : "–"}
-                </span>
+                {reported ? (
+                  <span class="streak on reported" title={`${reported.label}, from ${reported.source}`}>
+                    🔥 {reported.value.toLocaleString()}
+                  </span>
+                ) : (
+                  <span class={streak > 0 ? "streak on" : "streak"}>
+                    {streak > 0 ? <>🔥 {streak}{streakUnit(exp)}</> : "–"}
+                  </span>
+                )}
               </div>
             );
           })}
@@ -191,18 +226,35 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
       {editing && (
         <EditHabit
           habit={editing}
+          signals={signals}
           onClose={() => setEditingId(null)}
-          onSave={(name, hue, expectation) => {
+          onSave={(name, hue, expectation, linked, display) => {
             if (name !== editing.name) renameHabit(handle, editing.id, name);
             if (hue !== habitHue(editing)) setHabitHue(handle, editing.id, hue);
             if (JSON.stringify(expectation) !== JSON.stringify(editing.expectation))
               setHabitExpectation(handle, editing.id, expectation);
+            if (JSON.stringify(linked) !== JSON.stringify(signalsOf(editing)))
+              setHabitSignals(handle, editing.id, linked);
+            if (JSON.stringify(display) !== JSON.stringify(displayOf(editing)))
+              setHabitDisplay(handle, editing.id, display);
             setEditingId(null);
           }}
           onArchive={() => {
             setHabitArchived(handle, editing.id, true);
             setEditingId(null);
           }}
+        />
+      )}
+
+      {detail && detailHabit && (
+        <DayDetail
+          habit={detailHabit}
+          date={detail.date}
+          dateLabel={longDate(detail.date)}
+          idx={idx}
+          signals={signals}
+          onToggle={() => toggleHabit(handle, detailHabit, detail.date)}
+          onClose={() => setDetail(null)}
         />
       )}
 
@@ -222,6 +274,13 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
 export const Check = () => (
   <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
     <path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+  </svg>
+);
+
+/** An excused day: a pause mark. */
+const Excused = () => (
+  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+    <path d="M9 7v10M15 7v10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
   </svg>
 );
 
@@ -312,25 +371,37 @@ function TodaySummary({ done, total }: { done: number; total: number }) {
 
 function EditHabit(props: {
   habit: Habit;
+  signals: Signals;
   onClose: () => void;
-  onSave: (name: string, hue: number, expectation: Expectation) => void;
+  onSave: (name: string, hue: number, expectation: Expectation, signals: string[], display: HabitDisplay) => void;
   onArchive: () => void;
 }) {
   const [name, setName] = useState(props.habit.name);
   const [hue, setHue] = useState(habitHue(props.habit));
   const [expectation, setExpectation] = useState<Expectation>(expectationOf(props.habit));
+  const [linked, setLinked] = useState(signalsOf(props.habit));
+  const [display, setDisplay] = useState<HabitDisplay>(displayOf(props.habit));
   return (
     <Modal title="Edit habit" onClose={props.onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (name.trim()) props.onSave(name.trim(), hue, expectation);
+          if (name.trim()) props.onSave(name.trim(), hue, expectation, linked, display);
         }}
       >
         <label>Name
           <input autofocus value={name} onInput={(e) => setName(e.currentTarget.value)} />
         </label>
         <ScheduleField value={expectation} onChange={setExpectation} />
+        <LinkedDataField
+          signals={props.signals}
+          value={linked}
+          display={display}
+          onChange={(ids, d) => {
+            setLinked(ids);
+            setDisplay(d);
+          }}
+        />
         <fieldset class="swatches">
           <legend>Colour</legend>
           {HUES.map((h) => (

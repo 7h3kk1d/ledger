@@ -16,7 +16,7 @@ import type { Expectation, Habit } from "./types";
 
 const TODAY = "2026-10-21"; // a Wednesday; its week is Sun 18 – Sat 24
 const habit = (expectation: Expectation): Habit => ({ id: "h", name: "H", eventTypeIds: ["t"], expectation });
-const done = (...dates: string[]): DoneIndex => new Map([["t", new Set(dates)]]);
+const done = (...dates: string[]): DoneIndex => ({ types: new Map([["t", new Set(dates)]]), signals: new Map() });
 
 describe("weekdays", () => {
   const mwf = habit({ kind: "weekdays", days: [1, 3, 5] });

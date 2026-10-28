@@ -7,7 +7,9 @@ import {
   type Event,
   type Expectation,
   type Habit,
+  type HabitDisplay,
   type LedgerDoc,
+  type MetricRef,
   type Occurred,
 } from "../model/types";
 import { activeHabits, habitEventsOn, habitHue, HUES, localDate } from "../model/reduce";
@@ -170,5 +172,30 @@ export function moveHabit(h: DocHandle<LedgerDoc>, habitId: string, to: number):
       if (habit.hue === undefined) habit.hue = habitHue(x);
       if (habit.order !== k + 1) habit.order = k + 1;
     });
+  });
+}
+
+/** Link a habit to signals (ids from the signals service); an empty list unlinks all. */
+export function setHabitSignals(h: DocHandle<LedgerDoc>, habitId: string, signals: string[]): void {
+  h.change((d) => {
+    const habit = d.habits[habitId];
+    if (!habit) return;
+    if (signals.length) habit.signals = [...signals];
+    else delete habit.signals;
+  });
+}
+
+/** What a habit shows from its linked signals; an empty value removes the setting. */
+export function setHabitDisplay(h: DocHandle<LedgerDoc>, habitId: string, display: HabitDisplay): void {
+  h.change((d) => {
+    const habit = d.habits[habitId];
+    if (!habit) return;
+    // plain copies: Automerge can't take objects that live in another doc
+    const ref = (r: MetricRef): MetricRef => ({ signal: r.signal, metric: r.metric });
+    const next: HabitDisplay = {};
+    if (display.streak) next.streak = ref(display.streak);
+    if (display.metrics?.length) next.metrics = display.metrics.map(ref);
+    if (next.streak || next.metrics) habit.display = next;
+    else delete habit.display;
   });
 }

@@ -20,10 +20,14 @@ export default defineConfig(({ mode }) => ({
   },
   // automerge ships wasm; keep it out of dep pre-bundling
   optimizeDeps: { exclude: ["@automerge/automerge"] },
-  // the app reaches the sync server at /sync on its own host, as behind the
-  // cluster's ingress (pnpm dev:sync runs it locally)
+  // the app reaches the sync server at /sync and the signals service at
+  // /signals on its own host, as behind the cluster's ingress (pnpm dev:sync
+  // runs the sync server locally; SIGNALS_TARGET can point at the cluster's)
   server: {
-    proxy: { "/sync": { target: process.env.SYNC_TARGET ?? "ws://localhost:3030", ws: true } },
+    proxy: {
+      "/sync": { target: process.env.SYNC_TARGET ?? "ws://localhost:3030", ws: true },
+      "/signals": { target: process.env.SIGNALS_TARGET ?? "http://localhost:8765", changeOrigin: true },
+    },
   },
   build: { target: "es2022" },
   test: { environment: "node" },

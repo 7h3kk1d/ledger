@@ -15,6 +15,7 @@ import { useDoc } from "../../store/useDoc";
 import { useToday } from "../hooks";
 import { Modal } from "../Modal";
 import { Check } from "../habits/Habits";
+import { useSignals } from "../../signals/useSignals";
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 const shiftMonth = (ym: string, by: number) => {
@@ -32,7 +33,8 @@ export function Calendar({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const [habitId, setHabitId] = useState(""); // "" = all habits
   const [pickedDay, setPickedDay] = useState<string | null>(null);
 
-  const idx = useMemo(() => doneIndex(doc), [doc]);
+  const signals = useSignals(doc);
+  const idx = useMemo(() => doneIndex(doc, signals.index), [doc, signals.index]);
   const habits = activeHabits(doc);
   const habit = habitId ? doc.habits[habitId] : undefined;
   const days = monthGrid(month);
