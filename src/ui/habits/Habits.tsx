@@ -51,7 +51,11 @@ import {
 import { useSignals, type Signals } from "../../signals/useSignals";
 import { cellValue, currentValue, DayDetail, dayProgress, excusedLabel, hasObservations, LinkedDataField } from "./SignalsUI";
 import { useDoc } from "../../store/useDoc";
-import { useMedia, useToday } from "../hooks";
+import { useMedia, usePref, useToday } from "../hooks";
+import { Check, Excused } from "./icons";
+import { TodayTiles, type TapResult } from "./Today";
+
+export { Check };
 import { Modal } from "../Modal";
 
 const weekday = (d: string) =>
@@ -79,6 +83,23 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const [detail, setDetail] = useState<{ habitId: string; date: string } | null>(null);
   const noted = useMemo(() => noteIndex(doc), [doc]);
   const detailHabit = detail ? doc.habits[detail.habitId] : undefined;
+  // Today's tiles or the week grid; phones start on today. Per device, not in the doc.
+  const [storedView, setView] = usePref<"today" | "week">("ledger.habits.view", (v) => v === "today" || v === "week");
+  const view = storedView ?? (narrow ? "today" : "week");
+  const [hideDone = false, setHideDone] = usePref<boolean>("ledger.habits.hideDone", (v) => typeof v === "boolean");
+  // A day with data from linked signals, an excuse or a note opens its detail;
+  // others toggle a check-in. The grid and the tiles both go through here.
+  const tap = (h: Habit, d: string): TapResult => {
+    if (
+      noted.has(`${h.id} ${d}`) ||
+      (signalsOf(h).length > 0 && (hasObservations(signals, h, d) || dayState(idx, h, d) === "excused"))
+    ) {
+      setDetail({ habitId: h.id, date: d });
+      return "detail";
+    }
+    toggleHabit(handle, h, d);
+    return "toggled";
+  };
   const end = shiftDate(today, -DAYS * page);
   const days = dayRange(end, DAYS);
   const habits = activeHabits(doc);
@@ -107,10 +128,26 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
       {habits.length > 0 && <TodaySummary done={doneToday} total={dueToday.length} />}
 
       <div class="toolbar">
-        <button class="ghost" aria-label="Earlier" onClick={() => setPage(page + 1)}>‹</button>
-        <strong>{first}{first !== monthLabel(end) && ` – ${monthLabel(end)}`}</strong>
-        <button class="ghost" aria-label="Later" disabled={page === 0} onClick={() => setPage(page - 1)}>›</button>
-        {page > 0 && <button onClick={() => setPage(0)}>Today</button>}
+        {habits.length > 0 && (
+          <div class="segmented" role="group" aria-label="View">
+            <button aria-pressed={view === "today"} onClick={() => setView("today")}>Today</button>
+            <button aria-pressed={view === "week"} onClick={() => setView("week")}>Week</button>
+          </div>
+        )}
+        {view === "today" ? (
+          habits.length > 0 && (
+            <button class="ghost toggle" aria-pressed={hideDone} onClick={() => setHideDone(!hideDone)}>
+              Hide done
+            </button>
+          )
+        ) : (
+          <>
+            <button class="ghost" aria-label="Earlier" onClick={() => setPage(page + 1)}>‹</button>
+            <strong>{first}{first !== monthLabel(end) && ` – ${monthLabel(end)}`}</strong>
+            <button class="ghost" aria-label="Later" disabled={page === 0} onClick={() => setPage(page - 1)}>›</button>
+            {page > 0 && <button onClick={() => setPage(0)}>Back to today</button>}
+          </>
+        )}
         <span class="grow" />
         {signals.state.error && habits.some((h) => signalsOf(h).length) && (
           <small class="signals-stale" title={signals.state.error}>
@@ -124,6 +161,17 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
 
       {habits.length === 0 ? (
         <p class="empty">No habits yet. Add one to start tracking.</p>
+      ) : view === "today" ? (
+        <TodayTiles
+          habits={habits}
+          idx={idx}
+          signals={signals}
+          noted={noted}
+          today={today}
+          hideDone={hideDone}
+          onTap={(h) => tap(h, today)}
+          onDetail={(h) => setDetail({ habitId: h.id, date: today })}
+        />
       ) : (
         <div ref={gridRef} class={reorder.active ? "grid reordering" : "grid"} style={{ "--cols": DAYS, "--streak-w": streakWidth, "--streak-w-narrow": streakWidthNarrow }}>
           <div class="grid-head">
@@ -208,13 +256,8 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
                         aria-pressed={done}
                         aria-label={`${h.name}, ${longDate(d)}${state === "covered" ? " (covered)" : state === "late" ? " (late)" : state === "excused" ? ` (${excusedLabel(signals, h)})` : state === "unknown" ? " (no data)" : ""}${prog ? `: ${prog.text}` : ""}`}
                         title={state === "excused" ? excusedLabel(signals, h) : state === "unknown" ? "No data from linked sources for this day" : prog?.text}
-                        // a day with data from linked signals or a note opens its detail; others
-                        // toggle a check-in (right-click opens the detail of any day)
-                        onClick={() =>
-                          hasNote || (linked && (hasObservations(signals, h, d) || state === "excused"))
-                            ? setDetail({ habitId: h.id, date: d })
-                            : toggleHabit(handle, h, d)
-                        }
+                        // see tap(); right-click opens the detail of any day
+                        onClick={() => tap(h, d)}
                         onContextMenu={(e) => {
                           e.preventDefault();
                           setDetail({ habitId: h.id, date: d });
@@ -307,19 +350,6 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
     </section>
   );
 }
-
-export const Check = () => (
-  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-    <path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
-  </svg>
-);
-
-/** An excused day: a pause mark. */
-const Excused = () => (
-  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-    <path d="M9 7v10M15 7v10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
-  </svg>
-);
 
 const Grip = () => (
   <svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true" fill="currentColor">

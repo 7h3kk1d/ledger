@@ -33,3 +33,29 @@ export function useMedia(query: string): boolean {
   }, [query]);
   return match;
 }
+
+/**
+ * A per-device view preference in localStorage (a remembered tab, a filter):
+ * undefined until set, or when storage is unavailable or holds something
+ * `valid` rejects. Never for data that must persist or sync.
+ */
+export function usePref<T>(key: string, valid: (v: unknown) => v is T): [T | undefined, (v: T) => void] {
+  const [value, setValue] = useState<T | undefined>(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      const v: unknown = raw === null ? undefined : JSON.parse(raw);
+      return valid(v) ? v : undefined;
+    } catch {
+      return undefined;
+    }
+  });
+  const set = (v: T) => {
+    setValue(v);
+    try {
+      localStorage.setItem(key, JSON.stringify(v));
+    } catch {
+      // private mode or blocked storage: the choice lasts until reload
+    }
+  };
+  return [value, set];
+}

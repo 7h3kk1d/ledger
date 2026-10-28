@@ -399,3 +399,36 @@ dialog footer { display: flex; align-items: center; gap: .5rem; margin-top: .3re
 }
 .cell-value { font-size: .7rem; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.02em; line-height: 1; }
 .cell.valued:not(.done) { color: var(--text); }
+
+/* habits: Today | Week switch, and the hide-done toggle */
+.segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 2px; background: var(--surface); }
+.segmented button { border: none; border-radius: 999px; padding: .3rem .85rem; background: none; color: var(--muted); font-size: .9rem; }
+.segmented button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+button.ghost.toggle { font-size: .9rem; border-radius: 999px; }
+button.ghost.toggle[aria-pressed="true"] { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+
+/* today's habits as tiles: tap to tick off, long-press for the day's detail */
+.today-view { display: flex; flex-direction: column; gap: .8rem; }
+.tiles { --cell-size: 2.1rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: .5rem; }
+.tile {
+  display: flex; align-items: center; justify-content: space-between; gap: .5rem;
+  min-height: 3.8rem; padding: .55rem .6rem .55rem .8rem; text-align: left;
+  background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--habit);
+  border-radius: 12px; box-shadow: var(--shadow);
+  -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; touch-action: manipulation;
+  transition: opacity .3s ease, background .2s ease;
+}
+.tile:hover:not(:disabled) { border-color: var(--border); border-left-color: var(--habit); }
+.tile.done { background: var(--habit-soft); }
+.tile-text { display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
+.tile-name { font-weight: 600; line-height: 1.2; font-size: .95rem; overflow-wrap: break-word; hyphens: auto; -webkit-hyphens: auto; }
+.tile-sub { font-size: .78rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.tile > .cell { flex: none; }
+.tile.rest > .cell, .tile.covered > .cell { background: transparent; border: 1.5px dashed var(--border); }
+/* just ticked off with done hidden: shown checked, then fades away */
+.tile.leaving { animation: tile-leave .9s ease forwards; }
+@keyframes tile-leave { 0%, 45% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .tile.leaving { animation: none; } }
+.tile-section > summary { cursor: pointer; color: var(--muted); padding: .3rem 0; }
+.tile-section > .tiles { margin-top: .4rem; }
+.tile-section .tile:not(.done) { box-shadow: none; }
