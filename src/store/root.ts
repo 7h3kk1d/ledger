@@ -2,10 +2,10 @@
 // rollovers make a new ledger doc and repoint the root; old docs are never
 // deleted, so any of them can be switched back to. No browser dependencies.
 import type { AutomergeUrl, DocHandle, Repo } from "@automerge/automerge-repo";
-import { activeHabits, displayOf, habitHue, signalsOf, thresholdsOf } from "../model/reduce";
+import { activeHabits, displayOf, habitHue, signalsOf, tagsOf, thresholdsOf } from "../model/reduce";
 import { DATA_EPOCH, type LedgerDoc, type RootDoc, type RootReason } from "../model/types";
 import type { Expectation, HabitDisplay, Threshold } from "../model/types";
-import { createHabit, setHabitDisplay, setHabitHue, setHabitSignals, setHabitThresholds } from "./mutations";
+import { createHabit, createTag, setHabitDisplay, setHabitHue, setHabitSignals, setHabitTag, setHabitThresholds } from "./mutations";
 
 export interface SeedHabit {
   name: string;
@@ -15,9 +15,11 @@ export interface SeedHabit {
   signals?: string[];
   display?: HabitDisplay;
   thresholds?: Threshold[];
+  /** Tag names; tags are made in the new doc as needed. */
+  tags?: string[];
 }
 
-const emptyLedger = (): LedgerDoc => ({ eventTypes: {}, habits: {}, events: {} });
+const emptyLedger = (): LedgerDoc => ({ eventTypes: {}, habits: {}, events: {}, tags: {}, tagged: {} });
 
 /** A new ledger doc with the given habits, in order. */
 export function createLedger(repo: Repo, habits: SeedHabit[]): DocHandle<LedgerDoc> {
@@ -28,6 +30,7 @@ export function createLedger(repo: Repo, habits: SeedHabit[]): DocHandle<LedgerD
     if (s.signals?.length) setHabitSignals(h, id, s.signals);
     if (s.display) setHabitDisplay(h, id, s.display);
     if (s.thresholds?.length) setHabitThresholds(h, id, s.thresholds);
+    for (const name of s.tags ?? []) setHabitTag(h, id, createTag(h, name), true);
   }
   return h;
 }
@@ -47,6 +50,7 @@ export function habitSeed(doc: LedgerDoc, namesOnly = false): SeedHabit[] {
           signals: signalsOf(h),
           display: displayOf(h),
           thresholds: [...thresholdsOf(h).values()],
+          tags: tagsOf(doc, h.id).map((t) => t.name),
         },
   );
 }

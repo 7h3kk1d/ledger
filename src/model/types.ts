@@ -83,10 +83,28 @@ export interface HabitDisplay {
   cells?: "value";
 }
 
+/** A label for a group of habits (morning, home). Habits refer to it by id, so a rename shows everywhere. */
+export interface Tag {
+  id: string;
+  name: string;
+}
+
 export interface LedgerDoc {
   eventTypes: Record<string, EventType>;
   habits: Record<string, Habit>;
   events: Record<string, Event>;
+  /**
+   * Tags by id. Optional: docs made before tags get the map (and `tagged`)
+   * when a build that knows tags opens them (ensureTags), so later writes only
+   * set keys in existing maps and merge cleanly across devices.
+   */
+  tags?: Record<string, Tag>;
+  /**
+   * Which habits carry which tags: a key `<habitId> <tagId>` per pair. One
+   * key per pair, so tagging and untagging on two devices at once both land.
+   * A key whose tag or habit is gone means nothing. Read through tagsOf.
+   */
+  tagged?: Record<string, true>;
 }
 
 export const LOCAL_AUTHOR = "local";

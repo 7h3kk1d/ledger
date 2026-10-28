@@ -1,5 +1,5 @@
 import type { Observation, SignalIndex } from "./signals";
-import type { Event, Habit, HabitDisplay, LedgerDoc, MetricRef, Occurred, Threshold } from "./types";
+import type { Event, Habit, HabitDisplay, LedgerDoc, MetricRef, Occurred, Tag, Threshold } from "./types";
 
 /** Local YYYY-MM-DD for a Date (midnight-to-midnight day boundary). */
 export function localDate(d: Date): string {
@@ -227,6 +227,36 @@ export function archivedHabits(doc: Pick<LedgerDoc, "habits">): Habit[] {
 }
 
 /** The event type of notes on a day (see notesOn); created on first use. */
+const validTag = (t: unknown): t is Tag =>
+  typeof t === "object" && t !== null && validId((t as Tag).id) && typeof (t as Tag).name === "string";
+
+/** Every tag, by name. */
+export function allTags(doc: Pick<LedgerDoc, "tags">): Tag[] {
+  return Object.values(doc.tags ?? {})
+    .filter(validTag)
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.id.localeCompare(b.id));
+}
+
+/** The key in `LedgerDoc.tagged` for a habit carrying a tag. */
+export const taggedKey = (habitId: string, tagId: string) => `${habitId} ${tagId}`;
+
+export const hasTag = (doc: Pick<LedgerDoc, "tagged">, habitId: string, tagId: string) =>
+  doc.tagged?.[taggedKey(habitId, tagId)] === true;
+
+/** A habit's tags, by name; links to deleted tags are left out. */
+export const tagsOf = (doc: Pick<LedgerDoc, "tags" | "tagged">, habitId: string): Tag[] =>
+  allTags(doc).filter((t) => hasTag(doc, habitId, t.id));
+
+/** The habits carrying a tag, in their order; all of them when no tag (or one that's gone) is given. */
+export function withTag<H extends { id: string }>(
+  doc: Pick<LedgerDoc, "tags" | "tagged">,
+  habits: readonly H[],
+  tagId: string | undefined,
+): H[] {
+  if (!tagId || !validTag(doc.tags?.[tagId])) return [...habits];
+  return habits.filter((h) => hasTag(doc, h.id, tagId));
+}
+
 export const NOTE_TYPE = "ledger:note";
 
 export interface Note {

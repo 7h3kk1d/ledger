@@ -1,9 +1,10 @@
 import { useMemo, useRef, useState } from "preact/hooks";
 import type { TargetedPointerEvent } from "preact";
 import type { DocHandle } from "@automerge/automerge-repo";
-import type { Expectation, Habit, HabitDisplay, LedgerDoc, PeriodUnit, Threshold, TimeUnit } from "../../model/types";
+import type { Expectation, Habit, HabitDisplay, LedgerDoc, PeriodUnit, Tag, Threshold, TimeUnit } from "../../model/types";
 import {
   activeHabits,
+  allTags,
   archivedHabits,
   dayRange,
   displayOf,
@@ -16,7 +17,9 @@ import {
   notesOn,
   shiftDate,
   signalsOf,
+  tagsOf,
   thresholdsOf,
+  withTag,
 } from "../../model/reduce";
 import { ago } from "../../model/signals";
 import {
@@ -37,7 +40,11 @@ import {
 import {
   addNote,
   createHabit,
+  createTag,
+  deleteTag,
   moveHabit,
+  renameTag,
+  setHabitTag,
   setHabitExpectation,
   renameHabit,
   setHabitArchived,
@@ -54,6 +61,7 @@ import { useDoc } from "../../store/useDoc";
 import { useMedia, usePref, useToday } from "../hooks";
 import { Check, Excused } from "./icons";
 import { TodayTiles, type TapResult } from "./Today";
+import { TagField, TagFilter, TagsModal } from "./Tags";
 
 export { Check };
 import { Modal } from "../Modal";
@@ -61,8 +69,8 @@ import { Modal } from "../Modal";
 const weekday = (d: string) =>
   new Date(`${d}T00:00`).toLocaleDateString(undefined, { weekday: "short" });
 const dayNum = (d: string) => Number(d.slice(8));
-const monthLabel = (d: string) =>
-  new Date(`${d}T00:00`).toLocaleDateString(undefined, { month: "short", year: "numeric" });
+const monthLabel = (d: string, short = false) =>
+  new Date(`${d}T00:00`).toLocaleDateString(undefined, short ? { month: "short" } : { month: "short", year: "numeric" });
 const longDate = (d: string) =>
   new Date(`${d}T00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 
@@ -76,7 +84,11 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
-  const reorder = useReorder(gridRef, (from, to) => moveHabit(handle, habits[from]!.id, to));
+  const [editingTags, setEditingTags] = useState(false);
+  // positions in the filtered list map to positions among all habits
+  const moveTo = (habitId: string, to: number) =>
+    moveHabit(handle, habitId, allActive.findIndex((x) => x.id === habits[to]?.id));
+  const reorder = useReorder(gridRef, (from, to) => moveTo(habits[from]!.id, to));
 
   const signals = useSignals(doc);
   const idx = useMemo(() => doneIndex(doc, signals.index), [doc, signals.index]);
@@ -102,13 +114,20 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
   };
   const end = shiftDate(today, -DAYS * page);
   const days = dayRange(end, DAYS);
-  const habits = activeHabits(doc);
+  const allActive = activeHabits(doc);
+  // which tag's habits to show; per device, by id so a rename keeps it
+  const tags = allTags(doc);
+  const [storedTag = "", setTag] = usePref<string>("ledger.habits.tag", (v) => typeof v === "string");
+  const tag = tags.find((t) => t.id === storedTag);
+  const habits = withTag(doc, allActive, tag?.id);
   const archived = archivedHabits(doc);
   const editing = editingId ? doc.habits[editingId] : undefined;
   // habits not due today (a weekday off, a weekly target met) stay out of the count
   const dueToday = habits.filter((h) => countsOn(idx, h, today));
   const doneToday = dueToday.filter((h) => isDone(idx, h, today)).length;
-  const first = monthLabel(days[0]!);
+  // phones drop the year while it's this year, so the toolbar fits on one line
+  const short = narrow && days[0]!.slice(0, 4) === today.slice(0, 4);
+  const first = monthLabel(days[0]!, short);
   // The streak column fits the longest number shown (a reported streak can be 1,443), the
   // same for every row so they stay aligned.
   const longest = Math.max(
@@ -123,19 +142,27 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const streakWidth = longest > 3 ? `calc(${longest}ch + 1.9em)` : undefined;
   const streakWidthNarrow = longest > 3 ? `calc(${longest}ch * .8 + .3em)` : undefined;
 
+  const saveTags = (habitId: string, v: { ids: string[]; added: string[] }) => {
+    const want = new Set([...v.ids, ...v.added.map((n) => createTag(handle, n))]);
+    const had = new Set(tagsOf(doc, habitId).map((t) => t.id));
+    for (const id of want) if (!had.has(id)) setHabitTag(handle, habitId, id, true);
+    for (const id of had) if (!want.has(id)) setHabitTag(handle, habitId, id, false);
+  };
+  const tagCounts = new Map(tags.map((t) => [t.id, withTag(doc, allActive, t.id).length]));
+
   return (
     <section>
-      {habits.length > 0 && <TodaySummary done={doneToday} total={dueToday.length} />}
+      {allActive.length > 0 && <TodaySummary done={doneToday} total={dueToday.length} label={tag?.name} />}
 
       <div class="toolbar">
-        {habits.length > 0 && (
+        {allActive.length > 0 && (
           <div class="segmented" role="group" aria-label="View">
             <button aria-pressed={view === "today"} onClick={() => setView("today")}>Today</button>
             <button aria-pressed={view === "week"} onClick={() => setView("week")}>Week</button>
           </div>
         )}
         {view === "today" ? (
-          habits.length > 0 && (
+          allActive.length > 0 && (
             <button class="ghost toggle" aria-pressed={hideDone} onClick={() => setHideDone(!hideDone)}>
               Hide done
             </button>
@@ -143,7 +170,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
         ) : (
           <>
             <button class="ghost" aria-label="Earlier" onClick={() => setPage(page + 1)}>‹</button>
-            <strong>{first}{first !== monthLabel(end) && ` – ${monthLabel(end)}`}</strong>
+            <strong>{first}{first !== monthLabel(end, short) && ` – ${monthLabel(end, short)}`}</strong>
             <button class="ghost" aria-label="Later" disabled={page === 0} onClick={() => setPage(page - 1)}>›</button>
             {page > 0 && <button onClick={() => setPage(0)}>Back to today</button>}
           </>
@@ -159,8 +186,14 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
         <button class="primary" onClick={() => setAdding(true)}>+ Habit</button>
       </div>
 
-      {habits.length === 0 ? (
+      {tags.length > 0 && allActive.length > 0 && (
+        <TagFilter tags={tags} selected={tag?.id} onSelect={(id) => setTag(id ?? "")} onEdit={() => setEditingTags(true)} />
+      )}
+
+      {allActive.length === 0 ? (
         <p class="empty">No habits yet. Add one to start tracking.</p>
+      ) : habits.length === 0 ? (
+        <p class="empty">No habits tagged {tag?.name}.</p>
       ) : view === "today" ? (
         <TodayTiles
           habits={habits}
@@ -212,7 +245,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
                       const to = e.key === "ArrowUp" ? i - 1 : e.key === "ArrowDown" ? i + 1 : -1;
                       if (to < 0 || to >= habits.length) return;
                       e.preventDefault();
-                      moveHabit(handle, h.id, to);
+                      moveTo(h.id, to);
                     }}
                   >
                     <Grip />
@@ -302,8 +335,10 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
         <EditHabit
           habit={editing}
           signals={signals}
+          tags={tags}
+          tagIds={tagsOf(doc, editing.id).map((t) => t.id)}
           onClose={() => setEditingId(null)}
-          onSave={(name, hue, expectation, linked, display, thresholds) => {
+          onSave={(name, hue, expectation, linked, display, thresholds, tagged) => {
             if (name !== editing.name) renameHabit(handle, editing.id, name);
             if (hue !== habitHue(editing)) setHabitHue(handle, editing.id, hue);
             if (JSON.stringify(expectation) !== JSON.stringify(editing.expectation))
@@ -314,6 +349,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
               setHabitDisplay(handle, editing.id, display);
             if (JSON.stringify(thresholds) !== JSON.stringify([...thresholdsOf(editing).values()]))
               setHabitThresholds(handle, editing.id, thresholds);
+            saveTags(editing.id, tagged);
             setEditingId(null);
           }}
           onArchive={() => {
@@ -338,11 +374,23 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
         />
       )}
 
+      {editingTags && (
+        <TagsModal
+          tags={tags}
+          counts={tagCounts}
+          onRename={(id, name) => renameTag(handle, id, name)}
+          onDelete={(id) => deleteTag(handle, id)}
+          onClose={() => setEditingTags(false)}
+        />
+      )}
+
       {adding && (
         <AddHabit
           onClose={() => setAdding(false)}
           onAdd={(name, expectation) => {
-            createHabit(handle, name, expectation);
+            const id = createHabit(handle, name, expectation);
+            // added while a tag is picked: give it that tag, so it shows up
+            if (tag) setHabitTag(handle, id, tag.id, true);
             setAdding(false);
           }}
         />
@@ -413,7 +461,7 @@ function useReorder(gridRef: { current: HTMLElement | null }, onDrop: (from: num
   return { active: drag !== null, start, offset, isDragged: (i: number) => drag?.from === i };
 }
 
-function TodaySummary({ done, total }: { done: number; total: number }) {
+function TodaySummary({ done, total, label }: { done: number; total: number; label?: string }) {
   const r = 26;
   const c = 2 * Math.PI * r;
   const all = done === total;
@@ -430,7 +478,10 @@ function TodaySummary({ done, total }: { done: number; total: number }) {
       </svg>
       <div>
         <div class="summary-count">{done} <small>/ {total}</small></div>
-        <div class="summary-label">{total === 0 ? "Nothing due today" : all ? "All done today 🎉" : "done today"}</div>
+        <div class="summary-label">
+          {total === 0 ? "Nothing due today" : all ? "All done today 🎉" : "done today"}
+          {label && <span class="chip summary-tag">{label}</span>}
+        </div>
       </div>
     </div>
   );
@@ -439,8 +490,13 @@ function TodaySummary({ done, total }: { done: number; total: number }) {
 function EditHabit(props: {
   habit: Habit;
   signals: Signals;
+  tags: Tag[];
+  tagIds: string[];
   onClose: () => void;
-  onSave: (name: string, hue: number, expectation: Expectation, signals: string[], display: HabitDisplay, thresholds: Threshold[]) => void;
+  onSave: (
+    name: string, hue: number, expectation: Expectation, signals: string[], display: HabitDisplay,
+    thresholds: Threshold[], tags: { ids: string[]; added: string[] },
+  ) => void;
   onArchive: () => void;
 }) {
   const [name, setName] = useState(props.habit.name);
@@ -449,18 +505,20 @@ function EditHabit(props: {
   const [linked, setLinked] = useState(signalsOf(props.habit));
   const [display, setDisplay] = useState<HabitDisplay>(displayOf(props.habit));
   const [thresholds, setThresholds] = useState<Threshold[]>([...thresholdsOf(props.habit).values()]);
+  const [tagged, setTagged] = useState({ ids: props.tagIds, added: [] as string[] });
   return (
     <Modal title="Edit habit" onClose={props.onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (name.trim()) props.onSave(name.trim(), hue, expectation, linked, display, thresholds);
+          if (name.trim()) props.onSave(name.trim(), hue, expectation, linked, display, thresholds, tagged);
         }}
       >
         <label>Name
           <input autofocus value={name} onInput={(e) => setName(e.currentTarget.value)} />
         </label>
         <ScheduleField value={expectation} onChange={setExpectation} />
+        <TagField tags={props.tags} value={tagged} onChange={setTagged} />
         <LinkedDataField
           signals={props.signals}
           value={linked}

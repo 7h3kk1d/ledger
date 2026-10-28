@@ -432,3 +432,28 @@ button.ghost.toggle[aria-pressed="true"] { color: var(--accent); border-color: c
 .tile-section > summary { cursor: pointer; color: var(--muted); padding: .3rem 0; }
 .tile-section > .tiles { margin-top: .4rem; }
 .tile-section .tile:not(.done) { box-shadow: none; }
+
+/* tags: the filter row, the editor's field, the rename/delete list */
+.chip-button {
+  border-radius: 999px; padding: .25rem .75rem; font-size: .85rem; white-space: nowrap;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+}
+.chip-button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+.tag-filter {
+  display: flex; align-items: center; gap: .35rem; margin: -.3rem 0 .9rem;
+  overflow-x: auto; scrollbar-width: none; padding-bottom: 2px;
+}
+.tag-filter::-webkit-scrollbar { display: none; }
+.tag-filter .chip-button { flex: none; }
+.tag-filter .edit-tags { flex: none; font-size: 1rem; padding: .2rem .5rem; }
+.tag-field { border: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .45rem; }
+.tag-field legend { font-size: .85rem; color: var(--muted); margin-bottom: .35rem; padding: 0; }
+.tag-field .chips { display: flex; flex-wrap: wrap; gap: .35rem; }
+.tag-field .chips:empty { display: none; }
+.tag-new { display: flex; gap: .4rem; }
+.tag-new input { flex: 1; min-width: 0; }
+.tag-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .4rem; }
+.tag-list li { display: flex; align-items: center; gap: .5rem; }
+.tag-list input { flex: 1; min-width: 0; }
+.tag-list small { flex: none; }
+.summary-tag { margin-left: .45rem; font-size: .75rem; --h: 230; }

@@ -13,7 +13,7 @@ import {
   type Occurred,
   type Threshold,
 } from "../model/types";
-import { activeHabits, habitEventsOn, habitHue, HUES, localDate, NOTE_TYPE } from "../model/reduce";
+import { activeHabits, allTags, habitEventsOn, habitHue, HUES, localDate, NOTE_TYPE, taggedKey } from "../model/reduce";
 import { DAILY } from "../model/schedule";
 
 export const newId = () => crypto.randomUUID();
@@ -210,6 +210,59 @@ export function setHabitThresholds(h: DocHandle<LedgerDoc>, habitId: string, thr
     if (thresholds.length)
       habit.thresholds = thresholds.map((t) => ({ signal: t.signal, metric: t.metric, op: t.op, value: t.value }));
     else delete habit.thresholds;
+  });
+}
+
+/**
+ * Give the doc its tag maps if it predates tags. Run when a doc is opened, so
+ * the maps exist (and have synced) before anyone tags anything: two devices
+ * each creating the map offline would keep only one device's tags.
+ */
+export function ensureTags(h: DocHandle<LedgerDoc>): void {
+  const d0 = h.doc() as LedgerDoc | undefined;
+  if (!d0 || (d0.tags && d0.tagged)) return;
+  h.change((d) => {
+    if (!d.tags) d.tags = {};
+    if (!d.tagged) d.tagged = {};
+  });
+}
+
+const sameName = (a: string, b: string) => a.trim().localeCompare(b.trim(), undefined, { sensitivity: "base" }) === 0;
+
+/** A tag with this name (an existing one when the name is taken, ignoring case); its id. */
+export function createTag(h: DocHandle<LedgerDoc>, name: string): string {
+  const existing = allTags(h.doc() as LedgerDoc).find((t) => sameName(t.name, name));
+  if (existing) return existing.id;
+  ensureTags(h);
+  const id = newId();
+  h.change((d) => {
+    d.tags![id] = { id, name: name.trim() };
+  });
+  return id;
+}
+
+export function renameTag(h: DocHandle<LedgerDoc>, tagId: string, name: string): void {
+  h.change((d) => {
+    const t = d.tags?.[tagId];
+    if (t && name.trim()) t.name = name.trim();
+  });
+}
+
+/** Delete a tag and take it off every habit. Habits themselves are untouched. */
+export function deleteTag(h: DocHandle<LedgerDoc>, tagId: string): void {
+  h.change((d) => {
+    if (d.tags) delete d.tags[tagId];
+    for (const k of Object.keys(d.tagged ?? {})) if (k.endsWith(` ${tagId}`)) delete d.tagged![k];
+  });
+}
+
+/** Put a tag on a habit, or take it off. */
+export function setHabitTag(h: DocHandle<LedgerDoc>, habitId: string, tagId: string, on: boolean): void {
+  ensureTags(h);
+  h.change((d) => {
+    const k = taggedKey(habitId, tagId);
+    if (on && d.tags?.[tagId]) d.tagged![k] = true;
+    else if (!on) delete d.tagged![k];
   });
 }
 
