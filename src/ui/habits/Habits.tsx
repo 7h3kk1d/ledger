@@ -52,8 +52,6 @@ import { useDoc } from "../../store/useDoc";
 import { useMedia, useToday } from "../hooks";
 import { Modal } from "../Modal";
 
-const COMPACT = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
-
 const weekday = (d: string) =>
   new Date(`${d}T00:00`).toLocaleDateString(undefined, { weekday: "short" });
 const dayNum = (d: string) => Number(d.slice(8));
@@ -88,6 +86,19 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const dueToday = habits.filter((h) => countsOn(idx, h, today));
   const doneToday = dueToday.filter((h) => isDone(idx, h, today)).length;
   const first = monthLabel(days[0]!);
+  // The streak column fits the longest number shown (a reported streak can be 1,443), the
+  // same for every row so they stay aligned.
+  const longest = Math.max(
+    0,
+    ...habits.map((h) => {
+      const r = displayOf(h).streak;
+      const v = r ? signals.state.data.get(r.signal)?.current[r.metric] : undefined;
+      return v === undefined ? 0 : v.toLocaleString().length;
+    }),
+  );
+  // phones stack the flame above the number (style.css), so only the number's width counts there
+  const streakWidth = longest > 3 ? `calc(${longest}ch + 1.9em)` : undefined;
+  const streakWidthNarrow = longest > 3 ? `calc(${longest}ch * .8 + .3em)` : undefined;
 
   return (
     <section>
@@ -112,7 +123,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
       {habits.length === 0 ? (
         <p class="empty">No habits yet. Add one to start tracking.</p>
       ) : (
-        <div ref={gridRef} class={reorder.active ? "grid reordering" : "grid"} style={{ "--cols": DAYS }}>
+        <div ref={gridRef} class={reorder.active ? "grid reordering" : "grid"} style={{ "--cols": DAYS, "--streak-w": streakWidth, "--streak-w-narrow": streakWidthNarrow }}>
           <div class="grid-head">
             <span />
             {days.map((d) => (
@@ -210,8 +221,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
                 })}
                 {reported ? (
                   <span class="streak on reported" title={`${reported.label}: ${reported.text}, from ${reported.source}`}>
-                    {/* the column is narrow: 1,443 shows as 1.4K (the title has it in full) */}
-                    🔥 {reported.value >= 1000 ? COMPACT.format(reported.value) : reported.value.toLocaleString()}
+                    <span>🔥</span> <span>{reported.value.toLocaleString()}</span>
                   </span>
                 ) : (
                   <span class={streak > 0 ? "streak on" : "streak"}>

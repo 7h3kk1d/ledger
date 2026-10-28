@@ -155,7 +155,7 @@ label.check input { width: auto; }
 }
 .grid-head, .grid-row {
   display: grid;
-  grid-template-columns: minmax(7rem, 1fr) repeat(var(--cols), 2.75rem) 3.2rem;
+  grid-template-columns: minmax(7rem, 1fr) repeat(var(--cols), 2.75rem) max(3.2rem, var(--streak-w, 0px));
   align-items: center;
   column-gap: .15rem;
 }
@@ -241,7 +241,7 @@ button.habit-name:hover { background: var(--surface-2); }
 @media (max-width: 520px) {
   main { padding-left: .75rem; padding-right: .75rem; }
   .grid { padding: .3rem .4rem; }
-  .grid-head, .grid-row { grid-template-columns: minmax(0, 1fr) repeat(var(--cols), 2.6rem) 2.6rem; column-gap: 0; }
+  .grid-head, .grid-row { grid-template-columns: minmax(0, 1fr) repeat(var(--cols), 2.6rem) max(2.6rem, var(--streak-w-narrow, 0px)); column-gap: 0; }
   .grid { --cell-size: 2.2rem; }
   button.habit-name { font-size: .92rem; }
   .streak { font-size: .8rem; }
@@ -372,3 +372,7 @@ dialog footer { display: flex; align-items: center; gap: .5rem; margin-top: .3re
 .note-form { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: .4rem; }
 .note-form input { flex: 1 1 9rem; min-width: 0; }
 .note-form button { flex: none; }
+/* a long reported streak on a phone: the flame above the number, so the column stays narrow */
+@media (max-width: 520px) {
+  .streak.reported { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; font-size: .78rem; }
+}
