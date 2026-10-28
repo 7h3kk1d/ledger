@@ -54,6 +54,18 @@ export interface Habit {
   signals?: string[];
   /** What to show from linked signals. Read through `displayOf`. */
   display?: HabitDisplay;
+  /**
+   * When a linked signal's day counts: its total of a metric passes a value
+   * (sleep at least 7 h). At most one per signal; a signal without one counts
+   * whenever it says the day is satisfied. Read through `thresholdsOf`.
+   */
+  thresholds?: Threshold[];
+}
+
+/** A linked signal's day counts when the day's total of a metric is at least, or at most, a value. */
+export interface Threshold extends MetricRef {
+  op: "atLeast" | "atMost";
+  value: number;
 }
 
 /** A value a linked signal reports: its id and the metric's key. */

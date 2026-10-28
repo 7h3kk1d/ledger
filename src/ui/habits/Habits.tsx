@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "preact/hooks";
 import type { TargetedPointerEvent } from "preact";
 import type { DocHandle } from "@automerge/automerge-repo";
-import type { Expectation, Habit, HabitDisplay, LedgerDoc, PeriodUnit, TimeUnit } from "../../model/types";
+import type { Expectation, Habit, HabitDisplay, LedgerDoc, PeriodUnit, Threshold, TimeUnit } from "../../model/types";
 import {
   activeHabits,
   archivedHabits,
@@ -16,6 +16,7 @@ import {
   notesOn,
   shiftDate,
   signalsOf,
+  thresholdsOf,
 } from "../../model/reduce";
 import { ago } from "../../model/signals";
 import {
@@ -43,6 +44,7 @@ import {
   setHabitDisplay,
   setHabitHue,
   setHabitSignals,
+  setHabitThresholds,
   toggleHabit,
   tombstoneEvent,
 } from "../../store/store";
@@ -253,7 +255,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
           habit={editing}
           signals={signals}
           onClose={() => setEditingId(null)}
-          onSave={(name, hue, expectation, linked, display) => {
+          onSave={(name, hue, expectation, linked, display, thresholds) => {
             if (name !== editing.name) renameHabit(handle, editing.id, name);
             if (hue !== habitHue(editing)) setHabitHue(handle, editing.id, hue);
             if (JSON.stringify(expectation) !== JSON.stringify(editing.expectation))
@@ -262,6 +264,8 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
               setHabitSignals(handle, editing.id, linked);
             if (JSON.stringify(display) !== JSON.stringify(displayOf(editing)))
               setHabitDisplay(handle, editing.id, display);
+            if (JSON.stringify(thresholds) !== JSON.stringify([...thresholdsOf(editing).values()]))
+              setHabitThresholds(handle, editing.id, thresholds);
             setEditingId(null);
           }}
           onArchive={() => {
@@ -401,7 +405,7 @@ function EditHabit(props: {
   habit: Habit;
   signals: Signals;
   onClose: () => void;
-  onSave: (name: string, hue: number, expectation: Expectation, signals: string[], display: HabitDisplay) => void;
+  onSave: (name: string, hue: number, expectation: Expectation, signals: string[], display: HabitDisplay, thresholds: Threshold[]) => void;
   onArchive: () => void;
 }) {
   const [name, setName] = useState(props.habit.name);
@@ -409,12 +413,13 @@ function EditHabit(props: {
   const [expectation, setExpectation] = useState<Expectation>(expectationOf(props.habit));
   const [linked, setLinked] = useState(signalsOf(props.habit));
   const [display, setDisplay] = useState<HabitDisplay>(displayOf(props.habit));
+  const [thresholds, setThresholds] = useState<Threshold[]>([...thresholdsOf(props.habit).values()]);
   return (
     <Modal title="Edit habit" onClose={props.onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (name.trim()) props.onSave(name.trim(), hue, expectation, linked, display);
+          if (name.trim()) props.onSave(name.trim(), hue, expectation, linked, display, thresholds);
         }}
       >
         <label>Name
@@ -425,9 +430,11 @@ function EditHabit(props: {
           signals={props.signals}
           value={linked}
           display={display}
-          onChange={(ids, d) => {
+          thresholds={thresholds}
+          onChange={(ids, d, ts) => {
             setLinked(ids);
             setDisplay(d);
+            setThresholds(ts);
           }}
         />
         <fieldset class="swatches">

@@ -11,6 +11,7 @@ import {
   type LedgerDoc,
   type MetricRef,
   type Occurred,
+  type Threshold,
 } from "../model/types";
 import { activeHabits, habitEventsOn, habitHue, HUES, localDate, NOTE_TYPE } from "../model/reduce";
 import { DAILY } from "../model/schedule";
@@ -197,6 +198,17 @@ export function setHabitDisplay(h: DocHandle<LedgerDoc>, habitId: string, displa
     if (display.metrics?.length) next.metrics = display.metrics.map(ref);
     if (next.streak || next.metrics) habit.display = next;
     else delete habit.display;
+  });
+}
+
+/** When a habit's linked signals count a day (see Habit.thresholds); an empty list removes them. */
+export function setHabitThresholds(h: DocHandle<LedgerDoc>, habitId: string, thresholds: Threshold[]): void {
+  h.change((d) => {
+    const habit = d.habits[habitId];
+    if (!habit) return;
+    if (thresholds.length)
+      habit.thresholds = thresholds.map((t) => ({ signal: t.signal, metric: t.metric, op: t.op, value: t.value }));
+    else delete habit.thresholds;
   });
 }
 

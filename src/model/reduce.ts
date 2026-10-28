@@ -1,5 +1,5 @@
-import type { SignalIndex } from "./signals";
-import type { Event, Habit, HabitDisplay, LedgerDoc, MetricRef, Occurred } from "./types";
+import type { Observation, SignalIndex } from "./signals";
+import type { Event, Habit, HabitDisplay, LedgerDoc, MetricRef, Occurred, Threshold } from "./types";
 
 /** Local YYYY-MM-DD for a Date (midnight-to-midnight day boundary). */
 export function localDate(d: Date): string {
@@ -106,14 +106,56 @@ export function displayOf(habit: Habit): HabitDisplay {
   return out;
 }
 
+/** The habit's thresholds by signal: well-formed, for linked signals, the first per signal. */
+export function thresholdsOf(habit: Habit): Map<string, Threshold> {
+  const out = new Map<string, Threshold>();
+  if (!Array.isArray(habit.thresholds)) return out;
+  const linked = new Set(signalsOf(habit));
+  for (const t of habit.thresholds as unknown[]) {
+    if (!validRef(t) || !linked.has(t.signal) || out.has(t.signal)) continue;
+    const { op, value } = t as Threshold;
+    if ((op === "atLeast" || op === "atMost") && typeof value === "number" && Number.isFinite(value))
+      out.set(t.signal, { signal: t.signal, metric: t.metric, op, value });
+  }
+  return out;
+}
+
+/**
+ * A day's total of a metric over a signal's observations (excuses aside), or
+ * undefined when none of them reports it.
+ */
+export function dayTotal(obs: readonly Observation[] | undefined, metric: string): number | undefined {
+  let total: number | undefined;
+  for (const o of obs ?? []) {
+    const v = o.metrics[metric];
+    if (o.effect !== "excuses" && typeof v === "number") total = (total ?? 0) + v;
+  }
+  return total;
+}
+
+/** Whether a day's total passes a threshold; a day without the metric doesn't. */
+export const meets = (t: Threshold, total: number | undefined): boolean =>
+  total !== undefined && (t.op === "atLeast" ? total >= t.value : total <= t.value);
+
+/** Whether one linked signal counts the day as done. */
+function signalSatisfies(idx: DoneIndex, id: string, t: Threshold | undefined, date: string): boolean {
+  const d = idx.signals.get(id);
+  if (!d) return false;
+  return t ? meets(t, dayTotal(d.byDate.get(date), t.metric)) : d.satisfied.has(date);
+}
+
 /** Checked in by hand that day (an event of the habit's own types). */
 export function manualDone(idx: DoneIndex, habit: Habit, date: string): boolean {
   return habit.eventTypeIds.some((t) => idx.types.get(t)?.has(date));
 }
 
-/** A linked signal has an observation that satisfies the habit that day. */
+/**
+ * A linked signal counts the day: its total passes the habit's threshold for
+ * it, or, without one, one of its observations satisfies the day.
+ */
 export function signalDone(idx: DoneIndex, habit: Habit, date: string): boolean {
-  return signalsOf(habit).some((s) => idx.signals.get(s)?.satisfied.has(date));
+  const ts = thresholdsOf(habit);
+  return signalsOf(habit).some((s) => signalSatisfies(idx, s, ts.get(s), date));
 }
 
 export function isDone(idx: DoneIndex, habit: Habit, date: string): boolean {
@@ -143,7 +185,14 @@ export function isUnknown(idx: DoneIndex, habit: Habit, date: string): boolean {
 export function doneDates(idx: DoneIndex, habit: Habit): string[] {
   const all = new Set<string>();
   for (const t of habit.eventTypeIds) for (const d of idx.types.get(t) ?? []) all.add(d);
-  for (const s of signalsOf(habit)) for (const d of idx.signals.get(s)?.satisfied ?? []) all.add(d);
+  const ts = thresholdsOf(habit);
+  for (const s of signalsOf(habit)) {
+    const d = idx.signals.get(s);
+    const t = ts.get(s);
+    if (!d) continue;
+    if (!t) for (const date of d.satisfied) all.add(date);
+    else for (const [date, obs] of d.byDate) if (meets(t, dayTotal(obs, t.metric))) all.add(date);
+  }
   return [...all].sort();
 }
 

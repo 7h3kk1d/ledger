@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { displayOf, doneIndex, isDone, isExcused, isUnknown, localDate, manualDone, signalsOf } from "./reduce";
+import { dayTotal, displayOf, doneDates, doneIndex, isDone, isExcused, isUnknown, localDate, manualDone, meets, signalsOf, thresholdsOf } from "./reduce";
 import { bestStreak, countsOn, dayState, habitStreak, isDue, progress } from "./schedule";
 import {
   mergeAnswer,
@@ -180,5 +180,60 @@ describe("habit fields from other builds", () => {
     expect(signalsOf(h)).toEqual([S]);
     expect(displayOf(h)).toEqual({ metrics: [{ signal: S, metric: "xp" }] });
     expect(displayOf(habit(undefined, { display: "x" as unknown as Habit["display"] }))).toEqual({});
+  });
+});
+
+describe("thresholds", () => {
+  const night = (id: string, date: string, hours: number, effect: Observation["effect"] = "satisfies"): Observation => ({
+    ...day(id, date, effect),
+    metrics: { hours },
+  });
+  const sleep = (over: Partial<Habit> = {}) =>
+    habit({ kind: "daily" }, { thresholds: [{ signal: S, metric: "hours", op: "atLeast", value: 7 }], ...over });
+
+  it("counts a day only when the day's total passes", () => {
+    const idx = index([night("a", "2026-10-19", 7.5), night("b", "2026-10-20", 6), night("c", "2026-10-21", 7)]);
+    const h = sleep();
+    expect(["2026-10-19", "2026-10-20", "2026-10-21"].map((d) => isDone(idx, h, d))).toEqual([true, false, true]);
+    expect(doneDates(idx, h)).toEqual(["2026-10-19", "2026-10-21"]);
+    expect(habitStreak(idx, h, TODAY)).toBe(1);
+  });
+
+  it("adds up a day's observations and leaves excuses out", () => {
+    const idx = index([night("a", "2026-10-21", 4, "info"), night("b", "2026-10-21", 3.5), night("c", "2026-10-20", 9, "excuses")]);
+    expect(isDone(idx, sleep(), "2026-10-21")).toBe(true); // 7.5, info counts toward the total
+    expect(isDone(idx, sleep(), "2026-10-20")).toBe(false);
+    expect(isExcused(idx, sleep(), "2026-10-20")).toBe(true);
+  });
+
+  it("at most: a day with the metric at or under the value", () => {
+    const h = sleep({ thresholds: [{ signal: S, metric: "hours", op: "atMost", value: 7 }] });
+    const idx = index([night("a", "2026-10-20", 6), night("b", "2026-10-21", 8)]);
+    expect(isDone(idx, h, "2026-10-20")).toBe(true);
+    expect(isDone(idx, h, "2026-10-21")).toBe(false);
+    expect(isDone(idx, h, "2026-10-19")).toBe(false); // nothing reported isn't zero
+  });
+
+  it("a manual check-in still counts", () => {
+    const idx = index([night("a", "2026-10-20", 5)], [manual("2026-10-20")]);
+    expect(isDone(idx, sleep(), "2026-10-20")).toBe(true);
+  });
+
+  it("keeps only well-formed thresholds for linked signals, one each", () => {
+    const h = habit({ kind: "daily" }, {
+      thresholds: [
+        { signal: S, metric: "hours", op: "atLeast", value: 7 },
+        { signal: S, metric: "hours", op: "atMost", value: 9 },
+        { signal: "other/x/y", metric: "hours", op: "atLeast", value: 1 },
+        { signal: S, metric: "deep", op: "more", value: 1 } as never,
+      ],
+    });
+    expect([...thresholdsOf(h).values()]).toEqual([{ signal: S, metric: "hours", op: "atLeast", value: 7 }]);
+    expect(thresholdsOf(habit({ kind: "daily" }, { thresholds: "x" as never })).size).toBe(0);
+  });
+
+  it("dayTotal is undefined when nothing reports the metric", () => {
+    expect(dayTotal([day("a", TODAY)], "hours")).toBeUndefined();
+    expect(meets({ signal: S, metric: "hours", op: "atMost", value: 1 }, undefined)).toBe(false);
   });
 });

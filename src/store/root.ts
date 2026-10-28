@@ -2,10 +2,10 @@
 // rollovers make a new ledger doc and repoint the root; old docs are never
 // deleted, so any of them can be switched back to. No browser dependencies.
 import type { AutomergeUrl, DocHandle, Repo } from "@automerge/automerge-repo";
-import { activeHabits, displayOf, habitHue, signalsOf } from "../model/reduce";
+import { activeHabits, displayOf, habitHue, signalsOf, thresholdsOf } from "../model/reduce";
 import { DATA_EPOCH, type LedgerDoc, type RootDoc, type RootReason } from "../model/types";
-import type { Expectation, HabitDisplay } from "../model/types";
-import { createHabit, setHabitDisplay, setHabitHue, setHabitSignals } from "./mutations";
+import type { Expectation, HabitDisplay, Threshold } from "../model/types";
+import { createHabit, setHabitDisplay, setHabitHue, setHabitSignals, setHabitThresholds } from "./mutations";
 
 export interface SeedHabit {
   name: string;
@@ -14,6 +14,7 @@ export interface SeedHabit {
   /** Linked signals and what to show from them. */
   signals?: string[];
   display?: HabitDisplay;
+  thresholds?: Threshold[];
 }
 
 const emptyLedger = (): LedgerDoc => ({ eventTypes: {}, habits: {}, events: {} });
@@ -26,6 +27,7 @@ export function createLedger(repo: Repo, habits: SeedHabit[]): DocHandle<LedgerD
     if (s.hue !== undefined) setHabitHue(h, id, s.hue);
     if (s.signals?.length) setHabitSignals(h, id, s.signals);
     if (s.display) setHabitDisplay(h, id, s.display);
+    if (s.thresholds?.length) setHabitThresholds(h, id, s.thresholds);
   }
   return h;
 }
@@ -38,7 +40,14 @@ export function habitSeed(doc: LedgerDoc, namesOnly = false): SeedHabit[] {
   return activeHabits(doc).map((h) =>
     namesOnly
       ? { name: h.name }
-      : { name: h.name, hue: habitHue(h), expectation: h.expectation, signals: signalsOf(h), display: displayOf(h) },
+      : {
+          name: h.name,
+          hue: habitHue(h),
+          expectation: h.expectation,
+          signals: signalsOf(h),
+          display: displayOf(h),
+          thresholds: [...thresholdsOf(h).values()],
+        },
   );
 }
 

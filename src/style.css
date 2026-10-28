@@ -382,3 +382,11 @@ dialog footer { display: flex; align-items: center; gap: .5rem; margin-top: .3re
   border: 1.5px solid transparent;
 }
 .cell.unknown.today { border-color: var(--habit); }
+.linked-data li.linked { flex-direction: column; align-items: stretch; gap: .25rem; }
+.linked-data .linked-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.linked-data .counts-when { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; font-size: .85rem; color: var(--muted); }
+.linked-data .counts-when select { max-width: 100%; }
+.linked-data .threshold-value { display: inline-flex; align-items: center; gap: .35rem; }
+.linked-data .threshold-value input { width: 5.5rem; }
+.day-detail .threshold { display: block; color: var(--muted); }
+.day-detail .threshold.met { color: var(--text); }
