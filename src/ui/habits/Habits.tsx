@@ -49,7 +49,7 @@ import {
   tombstoneEvent,
 } from "../../store/store";
 import { useSignals, type Signals } from "../../signals/useSignals";
-import { currentValue, DayDetail, excusedLabel, hasObservations, LinkedDataField } from "./SignalsUI";
+import { cellValue, currentValue, DayDetail, dayProgress, excusedLabel, hasObservations, LinkedDataField } from "./SignalsUI";
 import { useDoc } from "../../store/useDoc";
 import { useMedia, useToday } from "../hooks";
 import { Modal } from "../Modal";
@@ -183,6 +183,10 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
                   const isToday = d === today;
                   const hasNote = noted.has(`${h.id} ${d}`);
                   const due = isToday && isDue(idx, h, d);
+                  // how far a linked day got: an arc toward the target, and the value if asked
+                  const prog = linked && state !== "unknown" ? dayProgress(signals, h, d) : undefined;
+                  const partial = !done && prog?.fraction !== undefined && prog.fraction > 0 && state !== "excused";
+                  const showValue = prog !== undefined && disp.cells === "value" && state !== "excused";
                   // Interval and per-period habits: a check-in's circle stretches
                   // over the days it covers and runs into the next check-in if
                   // that came in time; it fades out if the cover ran out first.
@@ -199,10 +203,11 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
                   return (
                     <span key={d} class={`cell-wrap${isToday ? " today" : ""}${span ? ` ${span}` : ""}`}>
                       <button
-                        class={`cell ${state}${due ? " today" : ""}${done && !manualDone(idx, h, d) ? " linked" : ""}${hasNote ? " noted" : ""}`}
+                        class={`cell ${state}${due ? " today" : ""}${done && !manualDone(idx, h, d) ? " linked" : ""}${hasNote ? " noted" : ""}${partial ? " partial" : ""}${showValue ? " valued" : ""}`}
+                        style={partial ? { "--p": Math.min(prog!.fraction!, 1) } : undefined}
                         aria-pressed={done}
-                        aria-label={`${h.name}, ${longDate(d)}${state === "covered" ? " (covered)" : state === "late" ? " (late)" : state === "excused" ? ` (${excusedLabel(signals, h)})` : state === "unknown" ? " (no data)" : ""}`}
-                        title={state === "excused" ? excusedLabel(signals, h) : state === "unknown" ? "No data from linked sources for this day" : undefined}
+                        aria-label={`${h.name}, ${longDate(d)}${state === "covered" ? " (covered)" : state === "late" ? " (late)" : state === "excused" ? ` (${excusedLabel(signals, h)})` : state === "unknown" ? " (no data)" : ""}${prog ? `: ${prog.text}` : ""}`}
+                        title={state === "excused" ? excusedLabel(signals, h) : state === "unknown" ? "No data from linked sources for this day" : prog?.text}
                         // a day with data from linked signals or a note opens its detail; others
                         // toggle a check-in (right-click opens the detail of any day)
                         onClick={() =>
@@ -215,7 +220,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
                           setDetail({ habitId: h.id, date: d });
                         }}
                       >
-                        {done && <Check />}
+                        {showValue ? <span class="cell-value">{cellValue(prog!)}</span> : done && <Check />}
                         {state === "excused" && <Excused />}
                       </button>
                     </span>

@@ -390,3 +390,12 @@ dialog footer { display: flex; align-items: center; gap: .5rem; margin-top: .3re
 .linked-data .threshold-value input { width: 5.5rem; }
 .day-detail .threshold { display: block; color: var(--muted); }
 .day-detail .threshold.met { color: var(--text); }
+/* a linked day's progress toward its target: an arc around the cell, as far as it got */
+.cell.partial::before {
+  content: ""; position: absolute; inset: -1.5px; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(var(--habit) calc(var(--p) * 1turn), transparent 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
+}
+.cell-value { font-size: .7rem; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.02em; line-height: 1; }
+.cell.valued:not(.done) { color: var(--text); }

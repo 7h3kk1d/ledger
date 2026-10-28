@@ -15,7 +15,7 @@ import {
   type DoneIndex,
   type Note,
 } from "../../model/reduce";
-import { ago, formatMetric, type Effect, type SignalInfo, type SignalMetric } from "../../model/signals";
+import { ago, compactNumber, formatMetric, type Effect, type SignalInfo, type SignalMetric } from "../../model/signals";
 import type { Event, Habit, HabitDisplay, MetricRef, Threshold } from "../../model/types";
 import type { Signals } from "../../signals/useSignals";
 import { Modal } from "../Modal";
@@ -38,18 +38,71 @@ const metricOf = (info: SignalInfo | undefined, key: string): SignalMetric | und
 
 /** A reported value right now, with its label and unit; undefined if the signal hasn't sent it. */
 export function currentValue(signals: Signals, ref: MetricRef) {
-  const value = signals.state.data.get(ref.signal)?.current[ref.metric];
+  const current = signals.state.data.get(ref.signal)?.current;
+  const value = current?.[ref.metric];
   if (value === undefined) return undefined;
   const info = signals.info(ref.signal);
   const metric = metricOf(info, ref.metric);
+  // with its target when it has one: "134 / 680 Cal"
+  const goal = metric?.goal !== undefined ? current?.[metric.goal] : undefined;
   return {
     value,
     label: metric?.label ?? ref.metric,
     unit: metric?.unit,
-    text: formatMetric(value, metric),
+    text: goal !== undefined ? `${formatMetric(value)} / ${formatMetric(goal, metric)}` : formatMetric(value, metric),
     source: info?.label ?? ref.signal,
   };
 }
+
+/** How far a day got: its value, and the fraction of the target when there is one. */
+export interface DayProgress {
+  value: number;
+  /** value / target; undefined without a target (or for an "at most" threshold). */
+  fraction?: number;
+  /** "6.8 h of 7 h", "134 of 680 Cal", "41 min". */
+  text: string;
+}
+
+/**
+ * A day's progress for a habit, from the first linked signal that has
+ * something to measure: its threshold's metric against the threshold, or else
+ * a metric the source gives a goal for, against that goal.
+ */
+export function dayProgress(signals: Signals, habit: Habit, date: string): DayProgress | undefined {
+  const thresholds = thresholdsOf(habit);
+  for (const id of signalsOf(habit)) {
+    const obs = signals.index.get(id)?.byDate.get(date);
+    if (!obs?.length) continue;
+    const info = signals.info(id);
+    const t = thresholds.get(id);
+    if (t) {
+      const value = dayTotal(obs, t.metric);
+      if (value === undefined) continue;
+      const m = metricOf(info, t.metric);
+      if (t.op === "atMost" || t.value <= 0) return { value, text: formatMetric(round(value), m) };
+      return { value, fraction: value / t.value, text: `${formatMetric(round(value))} of ${formatMetric(t.value, m)}` };
+    }
+    for (const m of info?.metrics ?? []) {
+      if (m.on !== "observation" || !m.goal) continue;
+      const value = dayTotal(obs, m.key);
+      const goals = obs.flatMap((o) => (typeof o.metrics[m.goal!] === "number" ? [o.metrics[m.goal!]!] : []));
+      if (value === undefined) continue;
+      const goal = goals.length ? Math.max(...goals) : undefined;
+      if (!goal || goal <= 0) return { value, text: formatMetric(round(value), m) };
+      return { value, fraction: value / goal, text: `${formatMetric(round(value))} of ${formatMetric(goal, m)}` };
+    }
+  }
+  return undefined;
+}
+
+const round = (v: number) => Math.round(v * 100) / 100;
+
+/** The day's value as a cell shows it. */
+export const cellValue = (p: DayProgress) => compactNumber(p.value);
+
+/** Whether any linked signal can give a day's progress (a threshold, or a metric with a goal). */
+const measurable = (signals: Signals, ids: string[], thresholds: Threshold[]) =>
+  thresholds.length > 0 || ids.some((id) => signals.info(id)?.metrics.some((m) => m.on === "observation" && m.goal));
 
 /** Whether a day has anything from the habit's linked signals. */
 export const hasObservations = (signals: Signals, habit: Habit, date: string) =>
@@ -292,12 +345,15 @@ export function LinkedDataField(props: {
         .slice(0, 8)
     : [];
 
-  const currents: MetricRef[] = value.flatMap((id) =>
-    (signals.info(id)?.metrics ?? [])
-      .filter((m) => m.on === "current")
+  const currents: MetricRef[] = value.flatMap((id) => {
+    const metrics = signals.info(id)?.metrics ?? [];
+    // a goal shows with the value it's the goal of ("134 / 680 Cal"), not on its own
+    const goals = new Set(metrics.flatMap((m) => (m.goal ? [m.goal] : [])));
+    return metrics
+      .filter((m) => m.on === "current" && !goals.has(m.key))
       .sort((a, b) => Number(b.role === "streak") - Number(a.role === "streak"))
-      .map((m) => ({ signal: id, metric: m.key })),
-  );
+      .map((m) => ({ signal: id, metric: m.key }));
+  });
   const refLabel = (r: MetricRef) =>
     `${metricOf(signals.info(r.signal), r.metric)?.label ?? r.metric} (${signals.info(r.signal)?.label ?? r.signal})`;
 
@@ -343,6 +399,16 @@ export function LinkedDataField(props: {
             </ul>
           )}
         </>
+      )}
+      {measurable(signals, value, thresholds) && (
+        <label class="check">
+          <input
+            type="checkbox"
+            checked={display.cells === "value"}
+            onChange={(e) => change(value, { ...display, cells: e.currentTarget.checked ? "value" : undefined })}
+          />
+          Show each day’s value in its cell
+        </label>
       )}
       {currents.length > 0 && (
         <>

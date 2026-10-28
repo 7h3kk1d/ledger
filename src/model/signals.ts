@@ -30,6 +30,8 @@ export interface SignalMetric {
   /** A value per observation, or one value right now (a streak, a rating). */
   on: "observation" | "current";
   role?: "streak" | "score";
+  /** Another metric (same `on`) that holds this one's target: calories → goal. */
+  goal?: string;
 }
 
 /** A catalog entry. */
@@ -142,6 +144,15 @@ export function signalIndex(data: ReadonlyMap<string, SignalData>): SignalIndex 
 export function formatMetric(value: number, metric?: Pick<SignalMetric, "unit">): string {
   const n = Number.isInteger(value) ? value.toLocaleString() : value.toLocaleString(undefined, { maximumFractionDigits: 1 });
   return metric?.unit ? `${n} ${metric.unit}` : n;
+}
+
+/** A value that fits in a day's cell: "7.6", "48", "1.1k". */
+export function compactNumber(v: number): string {
+  const a = Math.abs(v);
+  if (a >= 9950) return `${Math.round(v / 1000)}k`;
+  if (a >= 1000) return `${(Math.round(v / 100) / 10).toString()}k`;
+  if (a >= 10) return Math.round(v).toString();
+  return (Math.round(v * 10) / 10).toString();
 }
 
 /** "3 min ago", "2 h ago", "4 d ago". */

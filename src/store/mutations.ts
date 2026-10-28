@@ -196,7 +196,8 @@ export function setHabitDisplay(h: DocHandle<LedgerDoc>, habitId: string, displa
     const next: HabitDisplay = {};
     if (display.streak) next.streak = ref(display.streak);
     if (display.metrics?.length) next.metrics = display.metrics.map(ref);
-    if (next.streak || next.metrics) habit.display = next;
+    if (display.cells === "value") next.cells = "value";
+    if (next.streak || next.metrics || next.cells) habit.display = next;
     else delete habit.display;
   });
 }

@@ -103,6 +103,7 @@ export function displayOf(habit: Habit): HabitDisplay {
     const metrics = d.metrics.filter(ok);
     if (metrics.length) out.metrics = metrics;
   }
+  if (d.cells === "value") out.cells = "value";
   return out;
 }
 

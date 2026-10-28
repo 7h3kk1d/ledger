@@ -79,6 +79,8 @@ export interface HabitDisplay {
   streak?: MetricRef;
   /** Current values shown with the habit's name. */
   metrics?: MetricRef[];
+  /** "value": cells show the day's value (the one progress is drawn from) instead of a check. */
+  cells?: "value";
 }
 
 export interface LedgerDoc {
