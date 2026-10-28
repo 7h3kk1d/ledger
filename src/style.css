@@ -363,3 +363,12 @@ dialog footer { display: flex; align-items: center; gap: .5rem; margin-top: .3re
 .linked-data label { display: flex; flex-direction: column; gap: .3rem; font-size: .85rem; color: var(--muted); }
 .linked-data .show-metrics { display: flex; flex-direction: column; gap: .3rem; }
 .linked-data label.check { flex-direction: row; align-items: center; gap: .45rem; color: var(--text); font-size: .9rem; }
+/* a day with a note: a small dot at the top right */
+.cell.noted::after { content: ""; position: absolute; top: -1px; right: -1px; width: 8px; height: 8px; border-radius: 50%; background: var(--text); box-shadow: 0 0 0 2px var(--surface); }
+.cell { position: relative; }
+.notes { display: flex; flex-direction: column; gap: .45rem; }
+.notes h3 { font-size: .85rem; color: var(--muted); font-weight: 500; }
+.note { display: flex; align-items: center; justify-content: space-between; gap: .5rem; font-size: .92rem; }
+.note-form { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.note-form input { flex: 1 1 9rem; min-width: 0; }
+.note-form button { flex: none; }

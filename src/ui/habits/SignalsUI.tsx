@@ -2,9 +2,9 @@
 // data" field of the habit editor, and reading display values. Nothing here
 // knows which service a signal is; labels and units come from the catalog.
 import { useState } from "preact/hooks";
-import { displayOf, isDone, isExcused, manualDone, signalsOf, type DoneIndex } from "../../model/reduce";
+import { displayOf, isDone, isExcused, manualDone, signalsOf, type DoneIndex, type Note } from "../../model/reduce";
 import { ago, formatMetric, type Effect, type SignalInfo, type SignalMetric } from "../../model/signals";
-import type { Habit, HabitDisplay, MetricRef } from "../../model/types";
+import type { Event, Habit, HabitDisplay, MetricRef } from "../../model/types";
 import type { Signals } from "../../signals/useSignals";
 import { Modal } from "../Modal";
 
@@ -30,7 +30,13 @@ export function currentValue(signals: Signals, ref: MetricRef) {
   if (value === undefined) return undefined;
   const info = signals.info(ref.signal);
   const metric = metricOf(info, ref.metric);
-  return { value, label: metric?.label ?? ref.metric, text: formatMetric(value, metric), source: info?.label ?? ref.signal };
+  return {
+    value,
+    label: metric?.label ?? ref.metric,
+    unit: metric?.unit,
+    text: formatMetric(value, metric),
+    source: info?.label ?? ref.signal,
+  };
 }
 
 /** Whether a day has anything from the habit's linked signals. */
@@ -48,10 +54,15 @@ export function DayDetail(props: {
   dateLabel: string;
   idx: DoneIndex;
   signals: Signals;
+  notes: Note[];
   onToggle: () => void;
+  onAddNote: (reason: string, text: string) => void;
+  onDeleteNote: (e: Event) => void;
   onClose: () => void;
 }) {
   const { habit, date, idx, signals } = props;
+  const [reason, setReason] = useState("");
+  const [text, setText] = useState("");
   const manual = manualDone(idx, habit, date);
   const status = isDone(idx, habit, date)
     ? "Done"
@@ -102,10 +113,42 @@ export function DayDetail(props: {
             );
           })}
         </ul>
+        <section class="notes">
+          <h3>Notes</h3>
+          {props.notes.map((n) => (
+            <div key={n.event.id} class="note">
+              <span>
+                <strong>{n.reason || "Note"}</strong>
+                {n.text && <> · {n.text}</>}
+              </span>
+              <button class="ghost" aria-label="Delete note" onClick={() => props.onDeleteNote(n.event)}>×</button>
+            </div>
+          ))}
+          <form
+            class="note-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!reason.trim() && !text.trim()) return;
+              props.onAddNote(reason.trim(), text.trim());
+              setReason("");
+              setText("");
+            }}
+          >
+            <input list="note-reasons" placeholder="Reason, e.g. travel" value={reason} onInput={(e) => setReason(e.currentTarget.value)} />
+            <datalist id="note-reasons">
+              {REASONS.map((r) => <option key={r} value={r} />)}
+            </datalist>
+            <input placeholder="Details (optional)" value={text} onInput={(e) => setText(e.currentTarget.value)} />
+            <button disabled={!reason.trim() && !text.trim()}>Add note</button>
+          </form>
+          <small class="muted">A note explains the day; it doesn’t change whether it’s done.</small>
+        </section>
       </div>
     </Modal>
   );
 }
+
+const REASONS = ["Travel", "Sick", "Rest day", "Busy", "Other"];
 
 const refKey = (r: MetricRef) => `${r.signal}\n${r.metric}`;
 const sameRef = (a: MetricRef, b: MetricRef) => a.signal === b.signal && a.metric === b.metric;

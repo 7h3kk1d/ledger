@@ -12,7 +12,7 @@ import {
   type MetricRef,
   type Occurred,
 } from "../model/types";
-import { activeHabits, habitEventsOn, habitHue, HUES, localDate } from "../model/reduce";
+import { activeHabits, habitEventsOn, habitHue, HUES, localDate, NOTE_TYPE } from "../model/reduce";
 import { DAILY } from "../model/schedule";
 
 export const newId = () => crypto.randomUUID();
@@ -198,4 +198,15 @@ export function setHabitDisplay(h: DocHandle<LedgerDoc>, habitId: string, displa
     if (next.streak || next.metrics) habit.display = next;
     else delete habit.display;
   });
+}
+
+/** Add a note about a habit on a day: a reason and optional text. It doesn't change the day. */
+export function addNote(h: DocHandle<LedgerDoc>, habitId: string, date: string, reason: string, text: string): string {
+  if (!(h.doc() as LedgerDoc).eventTypes[NOTE_TYPE])
+    h.change((d) => {
+      d.eventTypes[NOTE_TYPE] = { id: NOTE_TYPE, name: "Note" };
+    });
+  const attrs: Attrs = { habit: habitId, reason };
+  if (text) attrs.text = text;
+  return logEvent(h, { typeId: NOTE_TYPE, occurred: { kind: "day", date }, attrs });
 }

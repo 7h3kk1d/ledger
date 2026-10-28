@@ -1,14 +1,17 @@
 import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
 import { Repo, type DocHandle } from "@automerge/automerge-repo";
-import { activeHabits, currentEvents, habitDoneOn } from "../model/reduce";
+import { activeHabits, currentEvents, displayOf, habitDoneOn, notesOn, signalsOf } from "../model/reduce";
 import type { LedgerDoc } from "../model/types";
 import {
+  addNote,
   createHabit,
   logEvent,
   moveHabit,
   renameHabit,
   setHabitArchived,
+  setHabitDisplay,
+  setHabitSignals,
   toggleHabit,
   tombstoneEvent,
 } from "./mutations";
@@ -99,5 +102,33 @@ describe("habit colours", () => {
     expect(new Set(before).size).toBe(3);
     moveHabit(h, ids[2]!, 0);
     expect(hues()).toEqual(before);
+  });
+});
+
+describe("notes and linked signals", () => {
+  it("adds and deletes a note without changing the day", () => {
+    const h = newHandle();
+    const habitId = createHabit(h, "Duolingo");
+    const habit = doc(h).habits[habitId]!;
+    addNote(h, habitId, "2026-10-20", "Travel", "flight to Denver");
+    const notes = notesOn(doc(h), habitId, "2026-10-20");
+    expect(notes.map((n) => [n.reason, n.text])).toEqual([["Travel", "flight to Denver"]]);
+    expect(notesOn(doc(h), "other", "2026-10-20")).toEqual([]);
+    expect(habitDoneOn(doc(h), habit, "2026-10-20")).toBe(false);
+    tombstoneEvent(h, notes[0]!.event);
+    expect(notesOn(doc(h), habitId, "2026-10-20")).toEqual([]);
+  });
+
+  it("links signals and display settings, and clears them", () => {
+    const h = newHandle();
+    const habitId = createHabit(h, "Duolingo");
+    setHabitSignals(h, habitId, ["duolingo/practice/me"]);
+    setHabitDisplay(h, habitId, { streak: { signal: "duolingo/practice/me", metric: "streak" } });
+    expect(signalsOf(doc(h).habits[habitId]!)).toEqual(["duolingo/practice/me"]);
+    expect(displayOf(doc(h).habits[habitId]!).streak?.metric).toBe("streak");
+    setHabitDisplay(h, habitId, {});
+    setHabitSignals(h, habitId, []);
+    expect(doc(h).habits[habitId]!.signals).toBeUndefined();
+    expect(doc(h).habits[habitId]!.display).toBeUndefined();
   });
 });

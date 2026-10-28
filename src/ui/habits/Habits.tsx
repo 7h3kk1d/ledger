@@ -12,6 +12,8 @@ import {
   HUES,
   isDone,
   manualDone,
+  noteIndex,
+  notesOn,
   shiftDate,
   signalsOf,
 } from "../../model/reduce";
@@ -32,6 +34,7 @@ import {
   WEEKDAYS,
 } from "../../model/schedule";
 import {
+  addNote,
   createHabit,
   moveHabit,
   setHabitExpectation,
@@ -41,12 +44,15 @@ import {
   setHabitHue,
   setHabitSignals,
   toggleHabit,
+  tombstoneEvent,
 } from "../../store/store";
 import { useSignals, type Signals } from "../../signals/useSignals";
 import { currentValue, DayDetail, excusedLabel, hasObservations, LinkedDataField } from "./SignalsUI";
 import { useDoc } from "../../store/useDoc";
 import { useMedia, useToday } from "../hooks";
 import { Modal } from "../Modal";
+
+const COMPACT = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
 
 const weekday = (d: string) =>
   new Date(`${d}T00:00`).toLocaleDateString(undefined, { weekday: "short" });
@@ -71,6 +77,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const signals = useSignals(doc);
   const idx = useMemo(() => doneIndex(doc, signals.index), [doc, signals.index]);
   const [detail, setDetail] = useState<{ habitId: string; date: string } | null>(null);
+  const noted = useMemo(() => noteIndex(doc), [doc]);
   const detailHabit = detail ? doc.habits[detail.habitId] : undefined;
   const end = shiftDate(today, -DAYS * page);
   const days = dayRange(end, DAYS);
@@ -125,7 +132,8 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
             const sub = [
               exp.kind !== "daily" && scheduleLabel(exp),
               exp.kind !== "daily" && progress(idx, h, today),
-              ...shown.map((m) => `${m.label} ${m.text}`),
+              // "1,443 days", "87,365 XP": the unit says what it is; without one, the label does
+              ...shown.map((m) => (m.unit ? m.text : `${m.label} ${m.text}`)),
             ].filter(Boolean);
             const linked = signalsOf(h).length > 0;
             return (
@@ -160,6 +168,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
                   const state = dayState(idx, h, d);
                   const done = state === "done";
                   const isToday = d === today;
+                  const hasNote = noted.has(`${h.id} ${d}`);
                   const due = isToday && isDue(idx, h, d);
                   // Interval and per-period habits: a check-in's circle stretches
                   // over the days it covers and runs into the next check-in if
@@ -177,16 +186,21 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
                   return (
                     <span key={d} class={`cell-wrap${isToday ? " today" : ""}${span ? ` ${span}` : ""}`}>
                       <button
-                        class={`cell ${state}${due ? " today" : ""}${done && !manualDone(idx, h, d) ? " linked" : ""}`}
+                        class={`cell ${state}${due ? " today" : ""}${done && !manualDone(idx, h, d) ? " linked" : ""}${hasNote ? " noted" : ""}`}
                         aria-pressed={done}
                         aria-label={`${h.name}, ${longDate(d)}${state === "covered" ? " (covered)" : state === "late" ? " (late)" : state === "excused" ? ` (${excusedLabel(signals, h)})` : ""}`}
                         title={state === "excused" ? excusedLabel(signals, h) : undefined}
-                        // a day with data from linked signals opens its detail; others toggle a check-in
+                        // a day with data from linked signals or a note opens its detail; others
+                        // toggle a check-in (right-click opens the detail of any day)
                         onClick={() =>
-                          linked && (hasObservations(signals, h, d) || state === "excused")
+                          hasNote || (linked && (hasObservations(signals, h, d) || state === "excused"))
                             ? setDetail({ habitId: h.id, date: d })
                             : toggleHabit(handle, h, d)
                         }
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setDetail({ habitId: h.id, date: d });
+                        }}
                       >
                         {done && <Check />}
                         {state === "excused" && <Excused />}
@@ -195,8 +209,9 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
                   );
                 })}
                 {reported ? (
-                  <span class="streak on reported" title={`${reported.label}, from ${reported.source}`}>
-                    🔥 {reported.value.toLocaleString()}
+                  <span class="streak on reported" title={`${reported.label}: ${reported.text}, from ${reported.source}`}>
+                    {/* the column is narrow: 1,443 shows as 1.4K (the title has it in full) */}
+                    🔥 {reported.value >= 1000 ? COMPACT.format(reported.value) : reported.value.toLocaleString()}
                   </span>
                 ) : (
                   <span class={streak > 0 ? "streak on" : "streak"}>
@@ -253,7 +268,10 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
           dateLabel={longDate(detail.date)}
           idx={idx}
           signals={signals}
+          notes={notesOn(doc, detailHabit.id, detail.date)}
           onToggle={() => toggleHabit(handle, detailHabit, detail.date)}
+          onAddNote={(reason, text) => addNote(handle, detailHabit.id, detail.date, reason, text)}
+          onDeleteNote={(e) => tombstoneEvent(handle, e)}
           onClose={() => setDetail(null)}
         />
       )}

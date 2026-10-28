@@ -16,6 +16,10 @@ Personal observability dashboard. This repo currently holds **Track A**: an appe
   means, the same as for check-ins. Only the links are in the doc (`Habit.signals`,
   `Habit.display`); observations are cached in IndexedDB. Without `signalsUrl` habits use check-ins
   only.
+- **Notes on a day:** a note (reason, e.g. travel, and optional text) explains a day without
+  changing it, e.g. why a streak freeze was used. It's an ordinary event (type `ledger:note`, the
+  habit in its attrs). A day with a note gets a dot; tapping it, or a day with linked data, opens the
+  day's detail (right-click opens any day's).
 - Offline works: edits are kept locally and merge when the server is reachable again. The dot in the header shows whether the server is connected.
 
 ## Dev
@@ -64,4 +68,4 @@ It runs on the homelab k3s cluster (`homelab/cluster/apps/ledger/`, see its READ
 
 ## Out of scope for now
 
-Native clients, accounts/tagging/permissions, configurable day boundaries, per-person habit linking, notes on days, expectations based on metrics (e.g. every 5,000 miles).
+Native clients, accounts/tagging/permissions, configurable day boundaries, per-person habit linking, expectations based on metrics (e.g. every 5,000 miles).

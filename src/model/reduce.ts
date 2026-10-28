@@ -161,3 +161,30 @@ export function activeHabits(doc: Pick<LedgerDoc, "habits">): Habit[] {
 export function archivedHabits(doc: Pick<LedgerDoc, "habits">): Habit[] {
   return Object.values(doc.habits).filter((h) => h.archived).sort(byOrder);
 }
+
+/** The event type of notes on a day (see notesOn); created on first use. */
+export const NOTE_TYPE = "ledger:note";
+
+export interface Note {
+  event: Event;
+  reason: string;
+  text: string;
+}
+
+/**
+ * Live notes about a habit on a local date. A note explains a day (a reason
+ * such as travel, and optional text) without changing whether it's done.
+ */
+export function notesOn(doc: Pick<LedgerDoc, "events">, habitId: string, date: string): Note[] {
+  return currentEvents(doc)
+    .filter((e) => e.typeId === NOTE_TYPE && e.attrs.habit === habitId && occurredDate(e.occurred) === date)
+    .map((e) => ({ event: e, reason: String(e.attrs.reason ?? ""), text: String(e.attrs.text ?? "") }));
+}
+
+/** "habitId date" for every day with a live note, to badge cells without rescanning. */
+export function noteIndex(doc: Pick<LedgerDoc, "events">): Set<string> {
+  const out = new Set<string>();
+  for (const e of currentEvents(doc))
+    if (e.typeId === NOTE_TYPE && typeof e.attrs.habit === "string") out.add(`${e.attrs.habit} ${occurredDate(e.occurred)}`);
+  return out;
+}
