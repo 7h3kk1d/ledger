@@ -38,12 +38,15 @@ export function todaySections(
 
 /**
  * A tile's one line under the name: the day's value from linked data
- * ("299 of 680 Cal"), else how a period or interval habit stands ("2/3 this
- * week", "due"), else the streak.
+ * ("299 of 680 Cal"), else the values picked to show with the name ("44 to
+ * approve"), else how a period or interval habit stands ("2/3 this week",
+ * "due"), else the streak.
  */
 export function tileSub(signals: Signals, idx: DoneIndex, h: Habit, today: string): string | undefined {
   const prog = signalsOf(h).length ? dayProgress(signals, h, today) : undefined;
   if (prog) return prog.text;
+  const shown = (displayOf(h).metrics ?? []).flatMap((r) => currentValue(signals, r) ?? []);
+  if (shown.length) return shown.map((m) => (m.unit ? m.text : `${m.label} ${m.text}`)).join(" · ");
   const exp = expectationOf(h);
   if (exp.kind !== "daily") {
     const p = progress(idx, h, today);

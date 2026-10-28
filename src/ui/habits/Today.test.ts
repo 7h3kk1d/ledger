@@ -51,10 +51,11 @@ const INFO: SignalInfo = {
   metrics: [
     { key: "calories", label: "Move", unit: "Cal", on: "observation", goal: "goal" },
     { key: "goal", label: "Goal", unit: "Cal", on: "observation" },
+    { key: "latest", label: "Latest", unit: "Cal", on: "current" },
   ],
 };
-const signals = (obs: Observation[]): Signals => {
-  const map = new Map<string, SignalData>([[RING, { observations: obs, current: {} }]]);
+const signals = (obs: Observation[], current: Record<string, number> = {}): Signals => {
+  const map = new Map<string, SignalData>([[RING, { observations: obs, current }]]);
   return {
     state: { enabled: true, catalog: [INFO], data: map, loading: false },
     index: signalIndex(map),
@@ -79,5 +80,12 @@ describe("tileSub", () => {
     ]);
     const ring = habit("r", { kind: "daily" }, { eventTypeIds: [], signals: [RING] });
     expect(tileSub(s, index({}, s.index), ring, TODAY)).toBe("299 of 680 Cal");
+  });
+  it("shows the values picked to show with the name, before the streak", () => {
+    const s = signals([], { latest: 44 });
+    const h = habit("w", { kind: "daily" }, {
+      eventTypeIds: [], signals: [RING], display: { metrics: [{ signal: RING, metric: "latest" }] },
+    });
+    expect(tileSub(s, index({}, s.index), h, TODAY)).toBe("44 Cal");
   });
 });
