@@ -52,6 +52,8 @@ export interface SignalData {
   observations: Observation[];
   current: Record<string, number>;
   freshAt?: string;
+  /** The first day the signal can say anything about (see SignalDays.from). */
+  coveredFrom?: string;
 }
 
 /** One signal's part of an observations response. */
@@ -60,6 +62,7 @@ export interface SignalAnswer {
   current: Record<string, number>;
   observations: Observation[];
   fresh_at?: string;
+  covered_from?: string;
 }
 
 /**
@@ -74,8 +77,11 @@ export function mergeAnswer(held: SignalData | undefined, answer: SignalAnswer):
     observations: [...byId.values()],
     current: answer.complete ? { ...answer.current } : { ...held?.current, ...answer.current },
     freshAt: answer.fresh_at ?? held?.freshAt,
+    coveredFrom: earliest(answer.covered_from, answer.complete ? undefined : held?.coveredFrom),
   };
 }
+
+const earliest = (a?: string, b?: string) => (a && b ? (a < b ? a : b) : (a ?? b));
 
 /**
  * The local day an observation counts on. An interval counts on the day it
@@ -98,6 +104,13 @@ export interface SignalDays {
   satisfied: Set<string>;
   excused: Set<string>;
   byDate: Map<string, Observation[]>;
+  /**
+   * The days the signal covers, from its first day of data to its last fetch.
+   * A day in this range with nothing satisfying it was missed; outside it
+   * there's no data either way.
+   */
+  from?: string;
+  to?: string;
 }
 
 export type SignalIndex = Map<string, SignalDays>;
@@ -105,7 +118,13 @@ export type SignalIndex = Map<string, SignalDays>;
 export function signalIndex(data: ReadonlyMap<string, SignalData>): SignalIndex {
   const idx: SignalIndex = new Map();
   for (const [id, d] of data) {
-    const days: SignalDays = { satisfied: new Set(), excused: new Set(), byDate: new Map() };
+    const days: SignalDays = {
+      satisfied: new Set(),
+      excused: new Set(),
+      byDate: new Map(),
+      from: d.coveredFrom,
+      to: d.freshAt ? localDate(new Date(d.freshAt)) : undefined,
+    };
     for (const o of d.observations) {
       const date = observationDate(o);
       if (o.effect === "satisfies") days.satisfied.add(date);

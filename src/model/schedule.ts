@@ -1,7 +1,7 @@
 // What a habit's expectation means on a given day: whether it's due, how its
 // streak counts, and how to describe it. Weeks run Sunday to Saturday, like
 // the calendar.
-import { doneDates, isDone, isExcused, shiftDate, type DoneIndex } from "./reduce";
+import { doneDates, isDone, isExcused, isUnknown, shiftDate, type DoneIndex } from "./reduce";
 import type { Expectation, Habit, PeriodUnit, TimeUnit } from "./types";
 
 export const DAILY: Expectation = { kind: "daily" };
@@ -122,14 +122,20 @@ export function isDue(idx: DoneIndex, habit: Habit, date: string): boolean {
  * - done: checked in
  * - rest: a fixed weekday habit's day off
  * - excused: a linked signal excuses the day (day-by-day habits only)
+ * - unknown: would be open or late, but no linked signal has data for the day
  * - covered: not needed, an earlier check-in takes care of it (inside an
  *   interval, or after the period's target is met)
  * - late: past an interval habit's due date
  * - open: expected and not done yet
  */
-export type DayState = "done" | "rest" | "excused" | "covered" | "late" | "open";
+export type DayState = "done" | "rest" | "excused" | "covered" | "late" | "open" | "unknown";
 
 export function dayState(idx: DoneIndex, habit: Habit, date: string): DayState {
+  const state = scheduleState(idx, habit, date);
+  return (state === "open" || state === "late") && isUnknown(idx, habit, date) ? "unknown" : state;
+}
+
+function scheduleState(idx: DoneIndex, habit: Habit, date: string): DayState {
   if (isDone(idx, habit, date)) return "done";
   const e = expectationOf(habit);
   if (excusable(e) && isScheduled(habit, date) && isExcused(idx, habit, date)) return "excused";

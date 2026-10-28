@@ -376,3 +376,9 @@ dialog footer { display: flex; align-items: center; gap: .5rem; margin-top: .3re
 @media (max-width: 520px) {
   .streak.reported { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; font-size: .78rem; }
 }
+/* a linked habit's day with no data from its sources: can't tell if it was missed */
+.cell.unknown {
+  background: repeating-linear-gradient(135deg, var(--border) 0 2px, transparent 2px 6px);
+  border: 1.5px solid transparent;
+}
+.cell.unknown.today { border-color: var(--habit); }

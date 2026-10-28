@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { displayOf, doneIndex, isDone, isExcused, localDate, manualDone, signalsOf } from "./reduce";
+import { displayOf, doneIndex, isDone, isExcused, isUnknown, localDate, manualDone, signalsOf } from "./reduce";
 import { bestStreak, countsOn, dayState, habitStreak, isDue, progress } from "./schedule";
 import {
   mergeAnswer,
@@ -19,8 +19,10 @@ const day = (id: string, date: string, effect: Observation["effect"] = "satisfie
   effect,
   metrics: {},
 });
+// covered from the start of 2026 to the evening of TODAY (local)
+const COVER = { coveredFrom: "2026-01-01", freshAt: new Date(2026, 9, 21, 20).toISOString() };
 const data = (...observations: Observation[]): Map<string, SignalData> =>
-  new Map([[S, { observations, current: {} }]]);
+  new Map([[S, { observations, current: {}, ...COVER }]]);
 const habit = (expectation: Expectation = { kind: "daily" }, over: Partial<Habit> = {}): Habit => ({
   id: "h",
   name: "H",
@@ -129,6 +131,40 @@ describe("habits backed by signals", () => {
     const fine = index([day("oil", "2026-08-01")]);
     expect(progress(fine, h, TODAY)).toBe("next in 103d");
     expect(dayState(fine, h, TODAY)).toBe("covered");
+  });
+});
+
+describe("days without data", () => {
+  const idx = (cover: Partial<SignalData>, events: Event[] = []) =>
+    doneIndex(
+      { events: Object.fromEntries(events.map((e) => [e.id, e])) },
+      signalIndex(new Map([[S, { observations: [day("a", "2026-10-15")], current: {}, ...cover }]])),
+    );
+  it("tells a missed day from one before the data starts", () => {
+    const i = idx({ coveredFrom: "2026-10-15", freshAt: COVER.freshAt });
+    expect(dayState(i, habit(), "2026-10-14")).toBe("unknown");
+    expect(dayState(i, habit(), "2026-10-16")).toBe("open"); // covered, nothing: missed
+    expect(isUnknown(i, habit(), "2026-10-15")).toBe(false); // done
+  });
+  it("has no data after the last fetch", () => {
+    const i = idx({ coveredFrom: "2026-10-01", freshAt: new Date(2026, 9, 19, 12).toISOString() });
+    expect(dayState(i, habit(), "2026-10-19")).toBe("open");
+    expect(dayState(i, habit(), TODAY)).toBe("unknown");
+  });
+  it("still counts a check-in on a day without data", () => {
+    const i = idx({}, [manual(TODAY)]);
+    expect(dayState(i, habit(), TODAY)).toBe("done");
+    expect(dayState(i, habit(), "2026-10-20")).toBe("unknown");
+  });
+  it("never applies to habits without linked signals, or to rest days", () => {
+    const i = idx({});
+    expect(dayState(i, habit(undefined, { signals: undefined }), "2026-10-20")).toBe("open");
+    expect(dayState(i, habit({ kind: "weekdays", days: [1] }), "2026-10-20")).toBe("rest");
+  });
+  it("keeps the earliest coverage when live answers merge in", () => {
+    const held: SignalData = { observations: [], current: {}, coveredFrom: "2026-10-01" };
+    expect(mergeAnswer(held, { complete: false, current: {}, observations: [], covered_from: "2026-10-28" }).coveredFrom).toBe("2026-10-01");
+    expect(mergeAnswer(held, { complete: true, current: {}, observations: [], covered_from: "2026-10-28" }).coveredFrom).toBe("2026-10-28");
   });
 });
 

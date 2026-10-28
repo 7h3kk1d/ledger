@@ -199,8 +199,8 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
                       <button
                         class={`cell ${state}${due ? " today" : ""}${done && !manualDone(idx, h, d) ? " linked" : ""}${hasNote ? " noted" : ""}`}
                         aria-pressed={done}
-                        aria-label={`${h.name}, ${longDate(d)}${state === "covered" ? " (covered)" : state === "late" ? " (late)" : state === "excused" ? ` (${excusedLabel(signals, h)})` : ""}`}
-                        title={state === "excused" ? excusedLabel(signals, h) : undefined}
+                        aria-label={`${h.name}, ${longDate(d)}${state === "covered" ? " (covered)" : state === "late" ? " (late)" : state === "excused" ? ` (${excusedLabel(signals, h)})` : state === "unknown" ? " (no data)" : ""}`}
+                        title={state === "excused" ? excusedLabel(signals, h) : state === "unknown" ? "No data from linked sources for this day" : undefined}
                         // a day with data from linked signals or a note opens its detail; others
                         // toggle a check-in (right-click opens the detail of any day)
                         onClick={() =>

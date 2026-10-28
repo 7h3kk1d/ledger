@@ -125,6 +125,20 @@ export function isExcused(idx: DoneIndex, habit: Habit, date: string): boolean {
   return !isDone(idx, habit, date) && signalsOf(habit).some((s) => idx.signals.get(s)?.excused.has(date));
 }
 
+/**
+ * A linked habit's day that no linked signal has data for (before its data
+ * starts, or after its last fetch), and that wasn't checked in: whether it was
+ * missed can't be told. Habits without linked signals never have such days.
+ */
+export function isUnknown(idx: DoneIndex, habit: Habit, date: string): boolean {
+  const linked = signalsOf(habit);
+  if (linked.length === 0 || isDone(idx, habit, date) || isExcused(idx, habit, date)) return false;
+  return !linked.some((s) => {
+    const d = idx.signals.get(s);
+    return d?.from !== undefined && d.to !== undefined && d.from <= date && date <= d.to;
+  });
+}
+
 /** All done dates for a habit, sorted ascending. */
 export function doneDates(idx: DoneIndex, habit: Habit): string[] {
   const all = new Set<string>();

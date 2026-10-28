@@ -2,7 +2,7 @@
 // data" field of the habit editor, and reading display values. Nothing here
 // knows which service a signal is; labels and units come from the catalog.
 import { useState } from "preact/hooks";
-import { displayOf, isDone, isExcused, manualDone, signalsOf, type DoneIndex, type Note } from "../../model/reduce";
+import { displayOf, isDone, isExcused, isUnknown, manualDone, signalsOf, type DoneIndex, type Note } from "../../model/reduce";
 import { ago, formatMetric, type Effect, type SignalInfo, type SignalMetric } from "../../model/signals";
 import type { Event, Habit, HabitDisplay, MetricRef } from "../../model/types";
 import type { Signals } from "../../signals/useSignals";
@@ -68,7 +68,9 @@ export function DayDetail(props: {
     ? "Done"
     : isExcused(idx, habit, date)
       ? excusedLabel(signals, habit)
-      : "Not done";
+      : isUnknown(idx, habit, date)
+        ? "No data"
+        : "Not done";
   return (
     <Modal title={habit.name} onClose={props.onClose}>
       <div class="day-detail">
@@ -93,7 +95,11 @@ export function DayDetail(props: {
                   <span>{signalName(signals, id)}</span>
                   {data?.freshAt && <small class="muted">updated {ago(data.freshAt)}</small>}
                 </div>
-                {obs.length === 0 && <small class="muted">Nothing recorded this day.</small>}
+                {obs.length === 0 && (
+                  <small class="muted">
+                    {coverage(signals, id, date)}
+                  </small>
+                )}
                 {obs.map((o) => {
                   const metrics = Object.entries(o.metrics)
                     .map(([k, v]) => {
@@ -149,6 +155,15 @@ export function DayDetail(props: {
 }
 
 const REASONS = ["Travel", "Sick", "Rest day", "Busy", "Other"];
+
+/** Why a signal has nothing on a day: nothing happened, or it has no data for it. */
+function coverage(signals: Signals, id: string, date: string): string {
+  const d = signals.index.get(id);
+  if (!d?.from || !d.to) return "No data from this source yet.";
+  if (date < d.from) return `No data this day: its data starts ${d.from}.`;
+  if (date > d.to) return `No data this day yet: last fetched ${d.to}.`;
+  return "Nothing recorded this day.";
+}
 
 const refKey = (r: MetricRef) => `${r.signal}\n${r.metric}`;
 const sameRef = (a: MetricRef, b: MetricRef) => a.signal === b.signal && a.metric === b.metric;
