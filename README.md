@@ -59,6 +59,12 @@ It runs on the homelab k3s cluster (`homelab/cluster/apps/ledger/`, see its READ
   signals add together. An *excused* day (a linked signal's "skipped, and that's fine", like a
   streak freeze) is left out of daily and weekday habits' streaks like a rest day.
 - No migrations: clients are only the owner's devices, so a breaking change bumps `DATA_EPOCH` instead.
+  Today a rollover keeps only habit names, so don't bump it without first making it carry
+  everything over (schedules, links, tags, events, notes).
+- **Maps added after a doc was made** (`tags`, `tagged`) are made by whichever copy opens it
+  first. Two copies doing that separately both write the key, and Automerge shows only one,
+  hiding the other's tags. `healTags` merges such copies back into one map, on open and after
+  every sync. A script writing to the live doc should wait until it has synced, too.
 - **Backup:** the sync server's volume, plus Export in the UI. Import makes the imported doc current everywhere.
 - **Install it on your phone.** Safari clears site storage after 7 days without a visit unless the
   app is on the home screen (Share → Add to Home Screen). The app also requests persistent storage.

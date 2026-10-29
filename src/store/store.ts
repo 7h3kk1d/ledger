@@ -3,7 +3,7 @@ import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-index
 import { WebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket";
 import { DATA_EPOCH, type LedgerDoc, type RootDoc } from "../model/types";
 import { habitSeed, rollover, switchTo } from "./root";
-import { ensureTags } from "./mutations";
+import { ensureTags, healTags } from "./mutations";
 
 export * from "./mutations";
 
@@ -97,8 +97,15 @@ export const outdated = () =>
 export const openCurrent = async (root: DocHandle<RootDoc>) => {
   const h = await find<LedgerDoc>((root.doc() as RootDoc).current as AutomergeUrl);
   ensureTags(h);
+  healTags(h);
+  // maps made elsewhere can meet ours in any later sync
+  if (!healing.has(h)) {
+    healing.add(h);
+    h.on("change", () => healTags(h));
+  }
   return h;
 };
+const healing = new WeakSet<DocHandle<LedgerDoc>>();
 
 /** New empty ledger doc (optionally with the same habits) for every device; the old one is kept. */
 export function resetData(root: DocHandle<RootDoc>, current: DocHandle<LedgerDoc>, keepHabits: boolean) {

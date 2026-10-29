@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { Repo, type DocHandle } from "@automerge/automerge-repo";
 import { allTags, tagsOf, withTag } from "../model/reduce";
 import type { LedgerDoc } from "../model/types";
-import { createHabit, createTag, deleteTag, ensureTags, renameTag, setHabitTag } from "./mutations";
+import { createHabit, createTag, deleteTag, ensureTags, healTags, renameTag, setHabitTag } from "./mutations";
 import { createLedger, habitSeed } from "./root";
 
 const doc = (h: DocHandle<LedgerDoc>) => h.doc() as LedgerDoc;
@@ -76,5 +76,35 @@ describe("tags", () => {
     const next = createLedger(new Repo({}), habitSeed(doc(h)));
     const [floss] = Object.values(doc(next).habits);
     expect(names(tagsOf(doc(next), floss!.id))).toEqual(["Evening"]);
+  });
+});
+
+describe("healTags", () => {
+  it("brings back tags hidden when two copies of an old doc each made their own maps", async () => {
+    const repo = new Repo({});
+    // a doc from before tags, with a habit, on two devices
+    const a = repo.create<LedgerDoc>({ eventTypes: {}, habits: {}, events: {} });
+    const floss = createHabit(a, "Floss");
+    const b = repo.clone(a);
+    // each opens it without the other's changes, makes the maps and tags something
+    setHabitTag(a, floss, createTag(a, "Morning"), true);
+    setHabitTag(b, floss, createTag(b, "Exports"), true);
+    a.merge(b);
+    expect(names(allTags(doc(a)))).toHaveLength(1); // one copy hidden
+
+    expect(healTags(a)).toBe(true);
+    expect(names(allTags(doc(a))).sort()).toEqual(["Exports", "Morning"]);
+    expect(names(tagsOf(doc(a), floss)).sort()).toEqual(["Exports", "Morning"]);
+    // healed for good: nothing more to do, and the other copy agrees once synced
+    expect(healTags(a)).toBe(false);
+    b.merge(a);
+    expect(names(allTags(doc(b))).sort()).toEqual(["Exports", "Morning"]);
+  });
+
+  it("does nothing to a doc with one copy of each map", () => {
+    const h = createLedger(new Repo({}), [{ name: "Floss", tags: ["Morning"] }]);
+    const heads = h.heads();
+    expect(healTags(h)).toBe(false);
+    expect(h.heads()).toEqual(heads);
   });
 });

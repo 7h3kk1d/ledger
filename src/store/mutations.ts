@@ -1,6 +1,6 @@
 // Mutations on a ledger doc handle. No browser or Vite dependencies, so the
 // bootstrap script can use them too.
-import type { DocHandle } from "@automerge/automerge-repo";
+import { getConflicts, type DocHandle } from "@automerge/automerge-repo";
 import {
   LOCAL_AUTHOR,
   type Attrs,
@@ -225,6 +225,33 @@ export function ensureTags(h: DocHandle<LedgerDoc>): void {
     if (!d.tags) d.tags = {};
     if (!d.tagged) d.tagged = {};
   });
+}
+
+/**
+ * Merge copies of the tag maps that were made separately. A device (or script)
+ * that opens a copy of the doc from before tags makes its own empty maps; when
+ * that meets the server's, Automerge keeps one map per key and hides the other,
+ * so tags seem to vanish. This puts every copy's entries back into one map.
+ * Returns whether it changed the doc. A tag or tagging deleted in one copy
+ * after the split comes back: better than losing the other copy's.
+ */
+export function healTags(h: DocHandle<LedgerDoc>): boolean {
+  const d0 = h.doc() as LedgerDoc | undefined;
+  if (!d0) return false;
+  const merged = (key: "tags" | "tagged") => {
+    const copies = Object.values(getConflicts(d0, key) ?? {});
+    if (copies.length < 2) return undefined;
+    // plain copies: Automerge can't take objects that live in the doc
+    return Object.assign({}, ...copies.map((c) => JSON.parse(JSON.stringify(c)) as object));
+  };
+  const tags = merged("tags") as LedgerDoc["tags"];
+  const tagged = merged("tagged") as LedgerDoc["tagged"];
+  if (!tags && !tagged) return false;
+  h.change((d) => {
+    if (tags) d.tags = tags;
+    if (tagged) d.tagged = tagged;
+  });
+  return true;
 }
 
 const sameName = (a: string, b: string) => a.trim().localeCompare(b.trim(), undefined, { sensitivity: "base" }) === 0;
