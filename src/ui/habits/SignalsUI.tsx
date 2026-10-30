@@ -6,6 +6,7 @@ import {
   dayTotal,
   displayOf,
   isDone,
+  excusedByHand,
   isExcused,
   isUnknown,
   manualDone,
@@ -13,8 +14,10 @@ import {
   signalsOf,
   thresholdsOf,
   type DoneIndex,
+  type Excuse,
   type Note,
 } from "../../model/reduce";
+import { expectationOf } from "../../model/schedule";
 import { ago, compactNumber, formatMetric, type Effect, type SignalInfo, type SignalMetric } from "../../model/signals";
 import type { Event, Habit, HabitDisplay, MetricRef, Threshold } from "../../model/types";
 import type { Signals } from "../../signals/useSignals";
@@ -32,6 +35,10 @@ export function excusedLabel(signals: Signals, habit: Habit): string {
   }
   return EFFECT_LABEL.excuses;
 }
+
+/** What a day's excuse is called: "Excused" when by hand, else the linked signal's name for it. */
+export const excuseLabel = (signals: Signals, idx: DoneIndex, habit: Habit, date: string): string =>
+  excusedByHand(idx, habit, date) ? "Excused" : excusedLabel(signals, habit);
 
 const metricOf = (info: SignalInfo | undefined, key: string): SignalMetric | undefined =>
   info?.metrics.find((m) => m.key === key);
@@ -120,8 +127,13 @@ export function DayDetail(props: {
   idx: DoneIndex;
   signals: Signals;
   notes: Note[];
+  excuses: Excuse[];
+  /** Whether an excuse would mean anything: a scheduled day of a day-by-day habit. */
+  canExcuse: boolean;
   onToggle: () => void;
-  onAddNote: (reason: string, text: string) => void;
+  onExcuse: (reason: string) => void;
+  onUnexcuse: () => void;
+  onAddNote: (text: string) => void;
   onDeleteNote: (e: Event) => void;
   onClose: () => void;
 }) {
@@ -129,14 +141,16 @@ export function DayDetail(props: {
   const [reason, setReason] = useState("");
   const [text, setText] = useState("");
   const manual = manualDone(idx, habit, date);
+  const done = isDone(idx, habit, date);
   const thresholds = thresholdsOf(habit);
-  const status = isDone(idx, habit, date)
+  const status = done
     ? "Done"
     : isExcused(idx, habit, date)
-      ? excusedLabel(signals, habit)
+      ? excuseLabel(signals, idx, habit, date)
       : isUnknown(idx, habit, date)
         ? "No data"
         : "Not done";
+  const excuse = props.excuses[0];
   return (
     <Modal title={habit.name} onClose={props.onClose}>
       <div class="day-detail">
@@ -186,13 +200,53 @@ export function DayDetail(props: {
             );
           })}
         </ul>
-        <section class="notes">
+        <section class="detail-section">
+          <h3>Excuse</h3>
+          {excuse ? (
+            <div class="note">
+              <span>
+                <strong>Excused</strong>
+                {excuse.reason && <> · {excuse.reason}</>}
+              </span>
+              <button onClick={props.onUnexcuse}>Remove</button>
+            </div>
+          ) : !props.canExcuse ? (
+            <small class="muted">
+              {expectationOf(habit).kind === "daily" || expectationOf(habit).kind === "weekdays"
+                ? "Not a day this habit is due."
+                : "Only daily and weekday habits can be excused; this one already allows for days off."}
+            </small>
+          ) : (
+            <form
+              class="note-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                props.onExcuse(reason.trim());
+                setReason("");
+              }}
+            >
+              <input list="excuse-reasons" placeholder="Reason (optional)" aria-label="Reason" value={reason} onInput={(e) => setReason(e.currentTarget.value)} />
+              <datalist id="excuse-reasons">
+                {REASONS.map((r) => <option key={r} value={r} />)}
+              </datalist>
+              <button>Excuse day</button>
+            </form>
+          )}
+          {!excuse && props.canExcuse && (
+            <small class="muted">
+              {done ? "It's done, so this only matters if the check-in is undone. " : ""}
+              An excused day doesn’t count toward the streak or break it.
+            </small>
+          )}
+        </section>
+        <section class="detail-section">
           <h3>Notes</h3>
           {props.notes.map((n) => (
             <div key={n.event.id} class="note">
               <span>
-                <strong>{n.reason || "Note"}</strong>
-                {n.text && <> · {n.text}</>}
+                {n.reason && <strong>{n.reason}</strong>}
+                {n.reason && n.text && " · "}
+                {n.text}
               </span>
               <button class="ghost" aria-label="Delete note" onClick={() => props.onDeleteNote(n.event)}>×</button>
             </div>
@@ -201,27 +255,22 @@ export function DayDetail(props: {
             class="note-form"
             onSubmit={(e) => {
               e.preventDefault();
-              if (!reason.trim() && !text.trim()) return;
-              props.onAddNote(reason.trim(), text.trim());
-              setReason("");
+              if (!text.trim()) return;
+              props.onAddNote(text.trim());
               setText("");
             }}
           >
-            <input list="note-reasons" placeholder="Reason, e.g. travel" value={reason} onInput={(e) => setReason(e.currentTarget.value)} />
-            <datalist id="note-reasons">
-              {REASONS.map((r) => <option key={r} value={r} />)}
-            </datalist>
-            <input placeholder="Details (optional)" value={text} onInput={(e) => setText(e.currentTarget.value)} />
-            <button disabled={!reason.trim() && !text.trim()}>Add note</button>
+            <input placeholder="Add a note" aria-label="Note" value={text} onInput={(e) => setText(e.currentTarget.value)} />
+            <button disabled={!text.trim()}>Add</button>
           </form>
-          <small class="muted">A note explains the day; it doesn’t change whether it’s done.</small>
+          <small class="muted">Notes are just words; they don’t change the day.</small>
         </section>
       </div>
     </Modal>
   );
 }
 
-const REASONS = ["Travel", "Sick", "Rest day", "Busy", "Other"];
+const REASONS = ["Sick", "Travel", "Injured", "Busy"];
 
 const OP_SIGN: Record<Threshold["op"], string> = { atLeast: "≥", atMost: "≤" };
 

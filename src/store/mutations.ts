@@ -13,7 +13,7 @@ import {
   type Occurred,
   type Threshold,
 } from "../model/types";
-import { activeHabits, allTags, habitEventsOn, habitHue, HUES, localDate, NOTE_TYPE, taggedKey } from "../model/reduce";
+import { activeHabits, allTags, habitEventsOn, habitHue, HUES, localDate, NOTE_TYPE, EXCUSE_TYPE, excusesOn, taggedKey } from "../model/reduce";
 import { DAILY } from "../model/schedule";
 
 export const newId = () => crypto.randomUUID();
@@ -293,13 +293,33 @@ export function setHabitTag(h: DocHandle<LedgerDoc>, habitId: string, tagId: str
   });
 }
 
-/** Add a note about a habit on a day: a reason and optional text. It doesn't change the day. */
-export function addNote(h: DocHandle<LedgerDoc>, habitId: string, date: string, reason: string, text: string): string {
-  if (!(h.doc() as LedgerDoc).eventTypes[NOTE_TYPE])
+/** Make sure a built-in event type exists, so the Events views can name its entries. */
+function ensureType(h: DocHandle<LedgerDoc>, id: string, name: string): void {
+  if (!(h.doc() as LedgerDoc).eventTypes[id])
     h.change((d) => {
-      d.eventTypes[NOTE_TYPE] = { id: NOTE_TYPE, name: "Note" };
+      d.eventTypes[id] = { id, name };
     });
-  const attrs: Attrs = { habit: habitId, reason };
-  if (text) attrs.text = text;
-  return logEvent(h, { typeId: NOTE_TYPE, occurred: { kind: "day", date }, attrs });
+}
+
+/** Add a note about a habit on a day. It's only words: it doesn't change the day. */
+export function addNote(h: DocHandle<LedgerDoc>, habitId: string, date: string, text: string): string {
+  ensureType(h, NOTE_TYPE, "Note");
+  return logEvent(h, { typeId: NOTE_TYPE, occurred: { kind: "day", date }, attrs: { habit: habitId, text } });
+}
+
+/**
+ * Excuse a habit's day (sick, travelling), with an optional reason: it then
+ * neither adds to the streak nor breaks it. Excusing an excused day does nothing.
+ */
+export function excuseDay(h: DocHandle<LedgerDoc>, habitId: string, date: string, reason: string): void {
+  if (excusesOn(h.doc() as LedgerDoc, habitId, date).length) return;
+  ensureType(h, EXCUSE_TYPE, "Excused");
+  const attrs: Attrs = { habit: habitId };
+  if (reason) attrs.reason = reason;
+  logEvent(h, { typeId: EXCUSE_TYPE, occurred: { kind: "day", date }, attrs });
+}
+
+/** Take back a day's excuse. */
+export function unexcuseDay(h: DocHandle<LedgerDoc>, habitId: string, date: string): void {
+  for (const x of excusesOn(h.doc() as LedgerDoc, habitId, date)) tombstoneEvent(h, x.event);
 }

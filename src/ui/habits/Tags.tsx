@@ -1,5 +1,5 @@
 import { useState } from "preact/hooks";
-import type { Tag } from "../../model/types";
+import type { Habit, Tag } from "../../model/types";
 import { Modal } from "../Modal";
 
 /** Chips for picking which tag's habits to show; "All" shows every habit. */
@@ -22,7 +22,7 @@ export function TagFilter(props: {
           {t.name}
         </button>
       ))}
-      <button class="ghost edit-tags" aria-label="Rename or delete tags" title="Rename or delete tags" onClick={props.onEdit}>✎</button>
+      <button class="ghost edit-tags" aria-label="Manage tags" title="Manage tags" onClick={props.onEdit}>✎</button>
     </div>
   );
 }
@@ -97,49 +97,74 @@ export function TagField(props: {
   );
 }
 
-/** Rename or delete tags. Each change is saved as it's made. */
-export function TagsModal(props: {
+/**
+ * Housekeeping that isn't needed day to day: renaming and deleting tags, and
+ * bringing back archived habits. Each change is saved as it's made.
+ */
+export function ManageHabits(props: {
   tags: Tag[];
   counts: Map<string, number>;
+  archived: Habit[];
   onRename: (tagId: string, name: string) => void;
   onDelete: (tagId: string) => void;
+  onRestore: (habitId: string) => void;
   onClose: () => void;
 }) {
   const [confirming, setConfirming] = useState<string | null>(null);
   return (
-    <Modal title="Tags" onClose={props.onClose}>
-      {props.tags.length === 0 ? (
-        <p class="muted">No tags. Add them to a habit in its editor.</p>
-      ) : (
-        <ul class="tag-list">
-          {props.tags.map((t) => {
-            const n = props.counts.get(t.id) ?? 0;
-            return (
-              <li key={t.id}>
-                <input
-                  aria-label={`Rename ${t.name}`}
-                  value={t.name}
-                  onChange={(e) => {
-                    const name = e.currentTarget.value.trim();
-                    if (name && name !== t.name) props.onRename(t.id, name);
-                    else e.currentTarget.value = t.name;
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") e.currentTarget.blur();
-                  }}
-                />
-                <small>{n === 1 ? "1 habit" : `${n} habits`}</small>
-                {confirming === t.id ? (
-                  <button class="primary danger" onClick={() => props.onDelete(t.id)}>Delete</button>
-                ) : (
-                  <button class="ghost" aria-label={`Delete ${t.name}`} onClick={() => setConfirming(t.id)}>✕</button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      <p class="muted hint">Deleting a tag takes it off its habits; the habits stay.</p>
+    <Modal title="Manage habits" onClose={props.onClose}>
+      <div class="day-detail">
+        <section class="detail-section">
+          <h3>Tags</h3>
+          {props.tags.length === 0 ? (
+            <small class="muted">No tags yet. Add them to a habit in its editor.</small>
+          ) : (
+            <ul class="tag-list">
+              {props.tags.map((t) => {
+                const n = props.counts.get(t.id) ?? 0;
+                return (
+                  <li key={t.id}>
+                    <input
+                      aria-label={`Rename ${t.name}`}
+                      value={t.name}
+                      onChange={(e) => {
+                        const name = e.currentTarget.value.trim();
+                        if (name && name !== t.name) props.onRename(t.id, name);
+                        else e.currentTarget.value = t.name;
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") e.currentTarget.blur();
+                      }}
+                    />
+                    <small>{n === 1 ? "1 habit" : `${n} habits`}</small>
+                    {confirming === t.id ? (
+                      <button class="primary danger" onClick={() => props.onDelete(t.id)}>Delete</button>
+                    ) : (
+                      <button class="ghost" aria-label={`Delete ${t.name}`} onClick={() => setConfirming(t.id)}>✕</button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {props.tags.length > 0 && <small class="muted">Deleting a tag takes it off its habits; the habits stay.</small>}
+        </section>
+        <section class="detail-section">
+          <h3>Archived</h3>
+          {props.archived.length === 0 ? (
+            <small class="muted">Nothing archived. Archive a habit from its editor to hide it; its history is kept.</small>
+          ) : (
+            <ul class="tag-list">
+              {props.archived.map((h) => (
+                <li key={h.id}>
+                  <span class="grow">{h.name}</span>
+                  <button onClick={() => props.onRestore(h.id)}>Restore</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
       <footer>
         <span class="grow" />
         <button class="primary" onClick={props.onClose}>Done</button>

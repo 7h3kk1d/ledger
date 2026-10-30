@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "preact/hooks";
-import type { TargetedPointerEvent } from "preact";
+import type { ComponentChildren, TargetedPointerEvent } from "preact";
 import type { DocHandle } from "@automerge/automerge-repo";
 import type { Expectation, Habit, HabitDisplay, LedgerDoc, PeriodUnit, Tag, Threshold, TimeUnit } from "../../model/types";
 import {
@@ -9,6 +9,7 @@ import {
   dayRange,
   displayOf,
   doneIndex,
+  excusesOn,
   habitHue,
   HUES,
   isDone,
@@ -26,7 +27,9 @@ import {
   countsOn,
   DAILY,
   dayState,
+  excusable,
   expectationOf,
+  isScheduled,
   PERIOD_DAYS,
   PERIOD_UNITS,
   habitStreak,
@@ -39,6 +42,8 @@ import {
 } from "../../model/schedule";
 import {
   addNote,
+  excuseDay,
+  unexcuseDay,
   createHabit,
   createTag,
   deleteTag,
@@ -56,12 +61,12 @@ import {
   tombstoneEvent,
 } from "../../store/store";
 import { useSignals, type Signals } from "../../signals/useSignals";
-import { cellValue, currentValue, DayDetail, dayProgress, excusedLabel, hasObservations, LinkedDataField } from "./SignalsUI";
+import { cellValue, currentValue, DayDetail, dayProgress, excuseLabel, LinkedDataField } from "./SignalsUI";
 import { useDoc } from "../../store/useDoc";
-import { useMedia, usePref, useToday } from "../hooks";
+import { useLinger, useMedia, usePref, usePress, useToday } from "../hooks";
 import { Check, Excused } from "./icons";
-import { TodayTiles, type TapResult } from "./Today";
-import { TagField, TagFilter, TagsModal } from "./Tags";
+import { LINGER_MS, todaySections, TodayTiles } from "./Today";
+import { ManageHabits, TagField, TagFilter } from "./Tags";
 
 export { Check };
 import { Modal } from "../Modal";
@@ -84,11 +89,14 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
-  const [editingTags, setEditingTags] = useState(false);
+  const [managing, setManaging] = useState(false);
+  const press = usePress();
+  const coarse = useMedia("(pointer: coarse)");
   // positions in the filtered list map to positions among all habits
   const moveTo = (habitId: string, to: number) =>
-    moveHabit(handle, habitId, allActive.findIndex((x) => x.id === habits[to]?.id));
-  const reorder = useReorder(gridRef, (from, to) => moveTo(habits[from]!.id, to));
+    moveHabit(handle, habitId, allActive.findIndex((x) => x.id === rows[to]?.id));
+  const reorder = useReorder(gridRef, (from, to) => moveTo(rows[from]!.id, to));
+  const [kept, keep] = useLinger(LINGER_MS);
 
   const signals = useSignals(doc);
   const idx = useMemo(() => doneIndex(doc, signals.index), [doc, signals.index]);
@@ -99,19 +107,15 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const [storedView, setView] = usePref<"today" | "week">("ledger.habits.view", (v) => v === "today" || v === "week");
   const view = storedView ?? (narrow ? "today" : "week");
   const [hideDone = false, setHideDone] = usePref<boolean>("ledger.habits.hideDone", (v) => typeof v === "boolean");
-  // A day with data from linked signals, an excuse or a note opens its detail;
-  // others toggle a check-in. The grid and the tiles both go through here.
-  const tap = (h: Habit, d: string): TapResult => {
-    if (
-      noted.has(`${h.id} ${d}`) ||
-      (signalsOf(h).length > 0 && (hasObservations(signals, h, d) || dayState(idx, h, d) === "excused"))
-    ) {
-      setDetail({ habitId: h.id, date: d });
-      return "detail";
-    }
+  // A tap always ticks a day on or off; holding it (or a right-click) opens the
+  // day's detail, for notes, excuses and linked data.
+  const toggle = (h: Habit, d: string) => {
+    const was = isDone(idx, h, d);
     toggleHabit(handle, h, d);
-    return "toggled";
+    // ticked off today with done hidden: stays a moment before it folds away
+    if (split && d === today && !was) keep(h.id);
   };
+  const openDetail = (h: Habit, d: string) => setDetail({ habitId: h.id, date: d });
   const end = shiftDate(today, -DAYS * page);
   const days = dayRange(end, DAYS);
   const allActive = activeHabits(doc);
@@ -125,6 +129,16 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
   // habits not due today (a weekday off, a weekly target met) stay out of the count
   const dueToday = habits.filter((h) => countsOn(idx, h, today));
   const doneToday = dueToday.filter((h) => isDone(idx, h, today)).length;
+  // With done hidden, the week of today keeps only what's left to do today in the
+  // grid; the rest folds away below it. An earlier week shows every habit.
+  const sections = todaySections(habits, idx, today, { hideDone, keep: kept });
+  const split = hideDone && page === 0;
+  const rows = split ? sections.open : habits;
+  const folded = split ? habits.filter((h) => !sections.open.includes(h)) : [];
+  const foldedLabel = [
+    sections.done.length > 0 && `${sections.done.length} done`,
+    sections.notDue.length > 0 && `${sections.notDue.length} not due`,
+  ].filter(Boolean).join(", ") + " today";
   // phones drop the year while it's this year, so the toolbar fits on one line
   const short = narrow && days[0]!.slice(0, 4) === today.slice(0, 4);
   const first = monthLabel(days[0]!, short);
@@ -150,44 +164,155 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
   };
   const tagCounts = new Map(tags.map((t) => [t.id, withTag(doc, allActive, t.id).length]));
 
+  // a week row; i is its place among the draggable rows, -1 for a folded one
+  const row = (h: Habit, i: number) => {
+    const streak = habitStreak(idx, h, today);
+    const exp = expectationOf(h);
+    const disp = displayOf(h);
+    const reported = disp.streak ? currentValue(signals, disp.streak) : undefined;
+    const shown = (disp.metrics ?? []).flatMap((r) => currentValue(signals, r) ?? []);
+    const sub = [
+      exp.kind !== "daily" && scheduleLabel(exp),
+      exp.kind !== "daily" && progress(idx, h, today),
+      // "1,443 days", "87,365 XP": the unit says what it is; without one, the label does
+      ...shown.map((m) => (m.unit ? m.text : `${m.label} ${m.text}`)),
+    ].filter(Boolean);
+    const linked = signalsOf(h).length > 0;
+    return (
+      <div
+        class={`grid-row${reorder.isDragged(i) ? " dragging" : ""}${split && kept.has(h.id) && isDone(idx, h, today) ? " leaving" : ""}`}
+        key={h.id}
+        style={{ "--h": habitHue(h), transform: i < 0 ? undefined : reorder.offset(i) }}
+      >
+        <span class="habit-cell">
+          {i < 0 ? (
+            // folded rows aren't reordered: a gap where the grip goes keeps the names in line
+            <span class="grip" />
+          ) : (
+            <button
+              class="grip"
+              aria-label={`Reorder ${h.name} (arrow keys)`}
+              onPointerDown={(e) => reorder.start(e, i)}
+              onKeyDown={(e) => {
+                const to = e.key === "ArrowUp" ? i - 1 : e.key === "ArrowDown" ? i + 1 : -1;
+                if (to < 0 || to >= rows.length) return;
+                e.preventDefault();
+                moveTo(h.id, to);
+              }}
+            >
+              <Grip />
+            </button>
+          )}
+          <button class="habit-name" onClick={() => setEditingId(h.id)}>
+            <span class="dot" />
+            <span>
+              {h.name}
+              {sub.length > 0 && <small class="sched">{sub.join(" · ")}</small>}
+            </span>
+          </button>
+        </span>
+        {days.map((d) => {
+          const state = dayState(idx, h, d);
+          const done = state === "done";
+          const isToday = d === today;
+          const hasNote = noted.has(`${h.id} ${d}`);
+          const due = isToday && isDue(idx, h, d);
+          // how far a linked day got: an arc toward the target, and the value if asked
+          const prog = linked && state !== "unknown" ? dayProgress(signals, h, d) : undefined;
+          const partial = !done && prog?.fraction !== undefined && prog.fraction > 0 && state !== "excused";
+          const showValue = prog !== undefined && disp.cells === "value" && state !== "excused";
+          // Interval and per-period habits: a check-in's circle stretches
+          // over the days it covers and runs into the next check-in if
+          // that came in time; it fades out if the cover ran out first.
+          const spans = exp.kind === "every" || exp.kind === "per";
+          const kept = (s?: string) => s === "covered" || s === "done";
+          const next = spans && d < today ? dayState(idx, h, shiftDate(d, 1)) : undefined;
+          const prev = spans && done ? dayState(idx, h, shiftDate(d, -1)) : undefined;
+          const span = [
+            state === "covered" && "covered",
+            done && kept(prev) && "from-left",
+            kept(state) && kept(next) && "to-right",
+            state === "covered" && next !== undefined && !kept(next) && "ends",
+          ].filter(Boolean).join(" ");
+          return (
+            <span key={d} class={`cell-wrap${isToday ? " today" : ""}${span ? ` ${span}` : ""}`}>
+              <button
+                class={`cell ${state}${due ? " today" : ""}${done && !manualDone(idx, h, d) ? " linked" : ""}${hasNote ? " noted" : ""}${partial ? " partial" : ""}${showValue ? " valued" : ""}`}
+                style={partial ? { "--p": Math.min(prog!.fraction!, 1) } : undefined}
+                aria-pressed={done}
+                aria-label={`${h.name}, ${longDate(d)}${state === "covered" ? " (covered)" : state === "late" ? " (late)" : state === "excused" ? ` (${excuseLabel(signals, idx, h, d)})` : state === "unknown" ? " (no data)" : ""}${hasNote ? " (note)" : ""}${prog ? `: ${prog.text}` : ""}`}
+                title={state === "excused" ? excuseLabel(signals, idx, h, d) : state === "unknown" ? "No data from linked sources for this day" : prog?.text}
+                {...press(() => toggle(h, d), () => openDetail(h, d))}
+              >
+                {showValue ? <span class="cell-value">{cellValue(prog!)}</span> : done && <Check />}
+                {state === "excused" && <Excused />}
+              </button>
+            </span>
+          );
+        })}
+        {reported ? (
+          <span class="streak on reported" title={`${reported.label}: ${reported.text}, from ${reported.source}`}>
+            <span>🔥</span> <span>{reported.value.toLocaleString()}</span>
+          </span>
+        ) : (
+          <span class={streak > 0 ? "streak on" : "streak"}>
+            {streak > 0 ? <>🔥 {streak}{streakUnit(exp)}</> : "–"}
+          </span>
+        )}
+      </div>
+    );
+  };
+
   return (
     <section>
-      {allActive.length > 0 && <TodaySummary done={doneToday} total={dueToday.length} label={tag?.name} />}
-
-      <div class="toolbar">
+      <div class="habits-head">
+        {allActive.length > 0 && (
+          <TodaySummary
+            done={doneToday}
+            total={dueToday.length}
+            label={tag?.name}
+            note={
+              signals.state.error && habits.some((h) => signalsOf(h).length) ? (
+                <small class="signals-stale" title={signals.state.error}>
+                  {signals.state.lastOk
+                    ? `Linked data from ${ago(new Date(signals.state.lastOk).toISOString())}`
+                    : "Linked data unavailable"}
+                </small>
+              ) : undefined
+            }
+          />
+        )}
+        <span class="grow" />
         {allActive.length > 0 && (
           <div class="segmented" role="group" aria-label="View">
             <button aria-pressed={view === "today"} onClick={() => setView("today")}>Today</button>
             <button aria-pressed={view === "week"} onClick={() => setView("week")}>Week</button>
           </div>
         )}
-        {view === "today" ? (
-          allActive.length > 0 && (
-            <button class="ghost toggle" aria-pressed={hideDone} onClick={() => setHideDone(!hideDone)}>
-              Hide done
-            </button>
-          )
+        {narrow ? (
+          <button class="primary add-round" aria-label="Add habit" title="Add habit" onClick={() => setAdding(true)}>+</button>
         ) : (
-          <>
-            <button class="ghost" aria-label="Earlier" onClick={() => setPage(page + 1)}>‹</button>
-            <strong>{first}{first !== monthLabel(end, short) && ` – ${monthLabel(end, short)}`}</strong>
-            <button class="ghost" aria-label="Later" disabled={page === 0} onClick={() => setPage(page - 1)}>›</button>
-            {page > 0 && <button onClick={() => setPage(0)}>Back to today</button>}
-          </>
+          <button class="primary" onClick={() => setAdding(true)}>+ Habit</button>
         )}
-        <span class="grow" />
-        {signals.state.error && habits.some((h) => signalsOf(h).length) && (
-          <small class="signals-stale" title={signals.state.error}>
-            {signals.state.lastOk
-              ? `Linked data from ${ago(new Date(signals.state.lastOk).toISOString())}`
-              : "Linked data unavailable"}
-          </small>
-        )}
-        <button class="primary" onClick={() => setAdding(true)}>+ Habit</button>
       </div>
 
-      {tags.length > 0 && allActive.length > 0 && (
-        <TagFilter tags={tags} selected={tag?.id} onSelect={(id) => setTag(id ?? "")} onEdit={() => setEditingTags(true)} />
+      {allActive.length > 0 && (
+        <div class="filters">
+          <button
+            class="chip-button hide-done"
+            aria-pressed={hideDone}
+            title={view === "week" && page > 0 ? "Only changes this week's view" : "Move habits done or not due today out of the way"}
+            onClick={() => setHideDone(!hideDone)}
+          >
+            Hide done
+          </button>
+          {tags.length > 0 && (
+            <>
+              <span class="filters-divider" aria-hidden="true" />
+              <TagFilter tags={tags} selected={tag?.id} onSelect={(id) => setTag(id ?? "")} onEdit={() => setManaging(true)} />
+            </>
+          )}
+        </div>
       )}
 
       {allActive.length === 0 ? (
@@ -202,11 +327,17 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
           noted={noted}
           today={today}
           hideDone={hideDone}
-          onTap={(h) => tap(h, today)}
-          onDetail={(h) => setDetail({ habitId: h.id, date: today })}
+          onToggle={(h) => toggleHabit(handle, h, today)}
+          onDetail={(h) => openDetail(h, today)}
         />
       ) : (
         <div ref={gridRef} class={reorder.active ? "grid reordering" : "grid"} style={{ "--cols": DAYS, "--streak-w": streakWidth, "--streak-w-narrow": streakWidthNarrow }}>
+          <div class="grid-nav">
+            <button class="ghost" aria-label="Earlier" onClick={() => setPage(page + 1)}>‹</button>
+            <strong>{first}{first !== monthLabel(end, short) && ` – ${monthLabel(end, short)}`}</strong>
+            <button class="ghost" aria-label="Later" disabled={page === 0} onClick={() => setPage(page - 1)}>›</button>
+            {page > 0 && <button class="ghost back" onClick={() => setPage(0)}>Today</button>}
+          </div>
           <div class="grid-head">
             <span />
             {days.map((d) => (
@@ -217,119 +348,29 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
             ))}
             <span class="streak-h">Streak</span>
           </div>
-          {habits.map((h, i) => {
-            const streak = habitStreak(idx, h, today);
-            const exp = expectationOf(h);
-            const disp = displayOf(h);
-            const reported = disp.streak ? currentValue(signals, disp.streak) : undefined;
-            const shown = (disp.metrics ?? []).flatMap((r) => currentValue(signals, r) ?? []);
-            const sub = [
-              exp.kind !== "daily" && scheduleLabel(exp),
-              exp.kind !== "daily" && progress(idx, h, today),
-              // "1,443 days", "87,365 XP": the unit says what it is; without one, the label does
-              ...shown.map((m) => (m.unit ? m.text : `${m.label} ${m.text}`)),
-            ].filter(Boolean);
-            const linked = signalsOf(h).length > 0;
-            return (
-              <div
-                class={reorder.isDragged(i) ? "grid-row dragging" : "grid-row"}
-                key={h.id}
-                style={{ "--h": habitHue(h), transform: reorder.offset(i) }}
-              >
-                <span class="habit-cell">
-                  <button
-                    class="grip"
-                    aria-label={`Reorder ${h.name} (arrow keys)`}
-                    onPointerDown={(e) => reorder.start(e, i)}
-                    onKeyDown={(e) => {
-                      const to = e.key === "ArrowUp" ? i - 1 : e.key === "ArrowDown" ? i + 1 : -1;
-                      if (to < 0 || to >= habits.length) return;
-                      e.preventDefault();
-                      moveTo(h.id, to);
-                    }}
-                  >
-                    <Grip />
-                  </button>
-                  <button class="habit-name" onClick={() => setEditingId(h.id)}>
-                    <span class="dot" />
-                    <span>
-                      {h.name}
-                      {sub.length > 0 && <small class="sched">{sub.join(" · ")}</small>}
-                    </span>
-                  </button>
-                </span>
-                {days.map((d) => {
-                  const state = dayState(idx, h, d);
-                  const done = state === "done";
-                  const isToday = d === today;
-                  const hasNote = noted.has(`${h.id} ${d}`);
-                  const due = isToday && isDue(idx, h, d);
-                  // how far a linked day got: an arc toward the target, and the value if asked
-                  const prog = linked && state !== "unknown" ? dayProgress(signals, h, d) : undefined;
-                  const partial = !done && prog?.fraction !== undefined && prog.fraction > 0 && state !== "excused";
-                  const showValue = prog !== undefined && disp.cells === "value" && state !== "excused";
-                  // Interval and per-period habits: a check-in's circle stretches
-                  // over the days it covers and runs into the next check-in if
-                  // that came in time; it fades out if the cover ran out first.
-                  const spans = exp.kind === "every" || exp.kind === "per";
-                  const kept = (s?: string) => s === "covered" || s === "done";
-                  const next = spans && d < today ? dayState(idx, h, shiftDate(d, 1)) : undefined;
-                  const prev = spans && done ? dayState(idx, h, shiftDate(d, -1)) : undefined;
-                  const span = [
-                    state === "covered" && "covered",
-                    done && kept(prev) && "from-left",
-                    kept(state) && kept(next) && "to-right",
-                    state === "covered" && next !== undefined && !kept(next) && "ends",
-                  ].filter(Boolean).join(" ");
-                  return (
-                    <span key={d} class={`cell-wrap${isToday ? " today" : ""}${span ? ` ${span}` : ""}`}>
-                      <button
-                        class={`cell ${state}${due ? " today" : ""}${done && !manualDone(idx, h, d) ? " linked" : ""}${hasNote ? " noted" : ""}${partial ? " partial" : ""}${showValue ? " valued" : ""}`}
-                        style={partial ? { "--p": Math.min(prog!.fraction!, 1) } : undefined}
-                        aria-pressed={done}
-                        aria-label={`${h.name}, ${longDate(d)}${state === "covered" ? " (covered)" : state === "late" ? " (late)" : state === "excused" ? ` (${excusedLabel(signals, h)})` : state === "unknown" ? " (no data)" : ""}${prog ? `: ${prog.text}` : ""}`}
-                        title={state === "excused" ? excusedLabel(signals, h) : state === "unknown" ? "No data from linked sources for this day" : prog?.text}
-                        // see tap(); right-click opens the detail of any day
-                        onClick={() => tap(h, d)}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          setDetail({ habitId: h.id, date: d });
-                        }}
-                      >
-                        {showValue ? <span class="cell-value">{cellValue(prog!)}</span> : done && <Check />}
-                        {state === "excused" && <Excused />}
-                      </button>
-                    </span>
-                  );
-                })}
-                {reported ? (
-                  <span class="streak on reported" title={`${reported.label}: ${reported.text}, from ${reported.source}`}>
-                    <span>🔥</span> <span>{reported.value.toLocaleString()}</span>
-                  </span>
-                ) : (
-                  <span class={streak > 0 ? "streak on" : "streak"}>
-                    {streak > 0 ? <>🔥 {streak}{streakUnit(exp)}</> : "–"}
-                  </span>
-                )}
-              </div>
-            );
-          })}
+          {rows.map(row)}
+          {rows.length === 0 && (
+            <p class="grid-empty">{sections.done.length ? "All done today 🎉" : "Nothing due today."}</p>
+          )}
+          {folded.length > 0 && (
+            <details class="grid-folded">
+              <summary>{foldedLabel}</summary>
+              {folded.map((h) => row(h, -1))}
+            </details>
+          )}
         </div>
       )}
 
-      {archived.length > 0 && (
-        <details class="archived">
-          <summary>Archived ({archived.length})</summary>
-          <ul>
-            {archived.map((h) => (
-              <li key={h.id}>
-                <span>{h.name}</span>
-                <button class="ghost" onClick={() => setHabitArchived(handle, h.id, false)}>Restore</button>
-              </li>
-            ))}
-          </ul>
-        </details>
+      {allActive.length > 0 && (
+        <p class="hint habits-hint">
+          {coarse ? "Tap to tick off · hold" : "Click to tick off · right-click"} for notes, excuses and details
+        </p>
       )}
+      <div class="habits-foot">
+        <button class="ghost" onClick={() => setManaging(true)}>
+          Manage habits{archived.length > 0 && ` · ${archived.length} archived`}
+        </button>
+      </div>
 
       {editing && (
         <EditHabit
@@ -367,20 +408,26 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
           idx={idx}
           signals={signals}
           notes={notesOn(doc, detailHabit.id, detail.date)}
+          excuses={excusesOn(doc, detailHabit.id, detail.date)}
+          canExcuse={excusable(expectationOf(detailHabit)) && isScheduled(detailHabit, detail.date)}
           onToggle={() => toggleHabit(handle, detailHabit, detail.date)}
-          onAddNote={(reason, text) => addNote(handle, detailHabit.id, detail.date, reason, text)}
+          onExcuse={(reason) => excuseDay(handle, detailHabit.id, detail.date, reason)}
+          onUnexcuse={() => unexcuseDay(handle, detailHabit.id, detail.date)}
+          onAddNote={(text) => addNote(handle, detailHabit.id, detail.date, text)}
           onDeleteNote={(e) => tombstoneEvent(handle, e)}
           onClose={() => setDetail(null)}
         />
       )}
 
-      {editingTags && (
-        <TagsModal
+      {managing && (
+        <ManageHabits
           tags={tags}
           counts={tagCounts}
+          archived={archived}
           onRename={(id, name) => renameTag(handle, id, name)}
           onDelete={(id) => deleteTag(handle, id)}
-          onClose={() => setEditingTags(false)}
+          onRestore={(id) => setHabitArchived(handle, id, false)}
+          onClose={() => setManaging(false)}
         />
       )}
 
@@ -461,14 +508,14 @@ function useReorder(gridRef: { current: HTMLElement | null }, onDrop: (from: num
   return { active: drag !== null, start, offset, isDragged: (i: number) => drag?.from === i };
 }
 
-function TodaySummary({ done, total, label }: { done: number; total: number; label?: string }) {
+function TodaySummary({ done, total, label, note }: { done: number; total: number; label?: string; note?: ComponentChildren }) {
   const r = 26;
   const c = 2 * Math.PI * r;
   const all = done === total;
   const share = total ? done / total : 1;
   return (
     <div class={all ? "summary all" : "summary"}>
-      <svg class="ring" viewBox="0 0 64 64" width="64" height="64" aria-hidden="true">
+      <svg class="ring" viewBox="0 0 64 64" width="44" height="44" aria-hidden="true">
         <circle cx="32" cy="32" r={r} class="ring-bg" />
         <circle
           cx="32" cy="32" r={r} class="ring-fg"
@@ -477,11 +524,12 @@ function TodaySummary({ done, total, label }: { done: number; total: number; lab
         />
       </svg>
       <div>
-        <div class="summary-count">{done} <small>/ {total}</small></div>
-        <div class="summary-label">
-          {total === 0 ? "Nothing due today" : all ? "All done today 🎉" : "done today"}
+        <div class="summary-line">
+          <span class="summary-count">{done}<small>/{total}</small></span>
+          <span class="summary-label">{total === 0 ? "nothing due today" : all ? "all done today 🎉" : "done today"}</span>
           {label && <span class="chip summary-tag">{label}</span>}
         </div>
+        {note}
       </div>
     </div>
   );
@@ -519,18 +567,22 @@ function EditHabit(props: {
         </label>
         <ScheduleField value={expectation} onChange={setExpectation} />
         <TagField tags={props.tags} value={tagged} onChange={setTagged} />
-        <LinkedDataField
-          signals={props.signals}
-          value={linked}
-          display={display}
-          thresholds={thresholds}
-          onChange={(ids, d, ts) => {
-            setLinked(ids);
-            setDisplay(d);
-            setThresholds(ts);
-          }}
-        />
-        <fieldset class="swatches">
+        <details class="more">
+          <summary>
+            More <small>{linked.length > 0 ? `linked data (${linked.length}), colour` : "linked data, colour"}</small>
+          </summary>
+          <LinkedDataField
+            signals={props.signals}
+            value={linked}
+            display={display}
+            thresholds={thresholds}
+            onChange={(ids, d, ts) => {
+              setLinked(ids);
+              setDisplay(d);
+              setThresholds(ts);
+            }}
+          />
+          <fieldset class="swatches">
           <legend>Colour</legend>
           {HUES.map((h) => (
             <button
@@ -543,7 +595,8 @@ function EditHabit(props: {
               onClick={() => setHue(h)}
             />
           ))}
-        </fieldset>
+          </fieldset>
+        </details>
         <footer>
           <button type="button" class="danger" onClick={props.onArchive}>Archive</button>
           <span class="grow" />

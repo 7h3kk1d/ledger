@@ -16,10 +16,15 @@ Personal observability dashboard. This repo currently holds **Track A**: an appe
   means, the same as for check-ins. Only the links are in the doc (`Habit.signals`,
   `Habit.display`); observations are cached in IndexedDB. Without `signalsUrl` habits use check-ins
   only.
-- **Notes on a day:** a note (reason, e.g. travel, and optional text) explains a day without
-  changing it, e.g. why a streak freeze was used. It's an ordinary event (type `ledger:note`, the
-  habit in its attrs). A day with a note gets a dot; tapping it, or a day with linked data, opens the
-  day's detail (right-click opens any day's).
+- **Tap and hold:** tapping a day (a week cell or a Today tile) always ticks it on or off; holding
+  it, or right-clicking, opens the day's detail: check-in, linked data, excuse and notes.
+- **Notes on a day:** plain text about a day that never changes it. An ordinary event (type
+  `ledger:note`, the habit in its attrs); a day with a note gets a dot. Older notes may also carry
+  a `reason`, which is shown before the text.
+- **Excusing a day by hand:** sick, travelling: an event of type `ledger:excuse` (`{ habit, reason? }`)
+  makes the day excused, so it neither adds to the streak nor breaks it. Separate from notes; only
+  for daily and weekday habits, like a linked signal's excuses.
+- **Hide done** (Today and the current week): habits done or not due today fold away below the rest.
 - Offline works: edits are kept locally and merge when the server is reachable again. The dot in the header shows whether the server is connected.
 
 ## Dev
@@ -56,8 +61,8 @@ It runs on the homelab k3s cluster (`homelab/cluster/apps/ledger/`, see its READ
 - Edits and deletes are appended (`amends` / tombstone), never destructive; `currentEvents` reduces the log.
 - Whole-day vs exact occurrence times; day boundary is local midnight to midnight.
 - A signal observation counts on its local day; an interval on the day it ends. Manual check-ins and
-  signals add together. An *excused* day (a linked signal's "skipped, and that's fine", like a
-  streak freeze) is left out of daily and weekday habits' streaks like a rest day.
+  signals add together. An *excused* day (excused by hand, or a linked signal's "skipped, and
+  that's fine", like a streak freeze) is left out of daily and weekday habits' streaks like a rest day.
 - No migrations: clients are only the owner's devices, so a breaking change bumps `DATA_EPOCH` instead.
   Today a rollover keeps only habit names, so don't bump it without first making it carry
   everything over (schedules, links, tags, events, notes).

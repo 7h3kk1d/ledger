@@ -133,19 +133,18 @@ label.check input { width: auto; }
 .toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; margin-bottom: .9rem; }
 .toolbar strong { min-width: 0; }
 
-/* today summary */
-.summary {
-  display: flex; align-items: center; gap: 1rem;
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  box-shadow: var(--shadow); padding: .8rem 1rem; margin-bottom: 1rem;
-}
+/* habits: the head row (today's count, the view switch, add) and the filter row */
+.habits-head { display: flex; align-items: center; gap: .6rem; margin-bottom: .75rem; min-height: 2.75rem; }
+.summary { display: flex; align-items: center; gap: .6rem; min-width: 0; }
+.summary-line { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: .4rem; }
+.summary .signals-stale { display: block; }
 .ring { transform: rotate(-90deg); flex: none; }
 .ring circle { fill: none; stroke-width: 7; }
 .ring-bg { stroke: var(--border); }
 .ring-fg { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset .4s ease; }
 .summary.all .ring-fg { stroke: #2fa66a; }
-.summary-count { font-size: 1.6rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
-.summary-count small { font-size: 1rem; font-weight: 500; }
+.summary-count { font-size: 1.35rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.summary-count small { font-size: .95rem; font-weight: 500; }
 .summary-label { color: var(--muted); font-size: .9rem; }
 
 /* habits grid */
@@ -247,11 +246,6 @@ button.habit-name:hover { background: var(--surface-2); }
   .streak { font-size: .8rem; }
 }
 
-.archived { margin-top: 1rem; color: var(--muted); }
-.archived summary { cursor: pointer; padding: .3rem 0; }
-.archived ul { list-style: none; padding: 0; margin: .4rem 0 0; }
-.archived li { display: flex; align-items: center; justify-content: space-between; padding: .2rem 0; }
-.archived li button { font-size: .9rem; }
 
 /* timeline */
 .timeline { display: flex; flex-direction: column; gap: 1.25rem; }
@@ -366,8 +360,8 @@ dialog footer { display: flex; align-items: center; gap: .5rem; margin-top: .3re
 /* a day with a note: a small dot at the top right */
 .cell.noted::after { content: ""; position: absolute; top: -1px; right: -1px; width: 8px; height: 8px; border-radius: 50%; background: var(--text); box-shadow: 0 0 0 2px var(--surface); }
 .cell { position: relative; }
-.notes { display: flex; flex-direction: column; gap: .45rem; }
-.notes h3 { font-size: .85rem; color: var(--muted); font-weight: 500; }
+.detail-section { display: flex; flex-direction: column; gap: .45rem; }
+.detail-section h3 { font-size: .85rem; color: var(--muted); font-weight: 500; }
 .note { display: flex; align-items: center; justify-content: space-between; gap: .5rem; font-size: .92rem; }
 .note-form { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: .4rem; }
 .note-form input { flex: 1 1 9rem; min-width: 0; }
@@ -400,12 +394,10 @@ dialog footer { display: flex; align-items: center; gap: .5rem; margin-top: .3re
 .cell-value { font-size: .7rem; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.02em; line-height: 1; }
 .cell.valued:not(.done) { color: var(--text); }
 
-/* habits: Today | Week switch, and the hide-done toggle */
+/* habits: Today | Week switch */
 .segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 2px; background: var(--surface); }
 .segmented button { border: none; border-radius: 999px; padding: .3rem .85rem; background: none; color: var(--muted); font-size: .9rem; }
 .segmented button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); font-weight: 600; }
-button.ghost.toggle { font-size: .9rem; border-radius: 999px; }
-button.ghost.toggle[aria-pressed="true"] { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 
 /* today's habits as tiles: tap to tick off, long-press for the day's detail */
 .today-view { display: flex; flex-direction: column; gap: .8rem; }
@@ -439,11 +431,14 @@ button.ghost.toggle[aria-pressed="true"] { color: var(--accent); border-color: c
   background: var(--surface); border: 1px solid var(--border); color: var(--text);
 }
 .chip-button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
-.tag-filter {
-  display: flex; align-items: center; gap: .35rem; margin: -.3rem 0 .9rem;
+.filters {
+  display: flex; align-items: center; gap: .35rem; margin: 0 0 .9rem;
   overflow-x: auto; scrollbar-width: none; padding-bottom: 2px;
 }
-.tag-filter::-webkit-scrollbar { display: none; }
+.filters::-webkit-scrollbar { display: none; }
+.filters > .chip-button { flex: none; }
+.filters-divider { flex: none; width: 1px; height: 1.3rem; background: var(--border); margin: 0 .2rem; }
+.tag-filter { display: flex; align-items: center; gap: .35rem; }
 .tag-filter .chip-button { flex: none; }
 .tag-filter .edit-tags { flex: none; font-size: 1rem; padding: .2rem .5rem; }
 .tag-field { border: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .45rem; }
@@ -456,4 +451,35 @@ button.ghost.toggle[aria-pressed="true"] { color: var(--accent); border-color: c
 .tag-list li { display: flex; align-items: center; gap: .5rem; }
 .tag-list input { flex: 1; min-width: 0; }
 .tag-list small { flex: none; }
-.summary-tag { margin-left: .45rem; font-size: .75rem; --h: 230; }
+.summary-tag { font-size: .75rem; --h: 230; }
+
+/* week grid with done hidden: just-ticked rows fade, the rest fold below */
+.grid-row.leaving { animation: tile-leave .9s ease forwards; }
+@media (prefers-reduced-motion: reduce) { .grid-row.leaving { animation: none; } }
+.grid-empty { margin: 0; padding: 1rem 0; text-align: center; color: var(--muted); border-top: 1px solid var(--border); }
+.grid-folded { border-top: 1px solid var(--border); }
+.grid-folded > summary { cursor: pointer; color: var(--muted); font-size: .9rem; padding: .55rem .2rem; }
+.grid-folded > .grid-row { border-top: 1px solid var(--border); }
+.grid-folded > .grid-row .habit-name { color: var(--muted); }
+span.grip { flex: none; width: 1.5rem; margin-left: -.3rem; }
+
+/* week grid: its own date navigation along the top of the card */
+.grid-nav { display: flex; align-items: center; gap: .2rem; padding: .1rem 0 .2rem; }
+.grid-nav strong { font-size: .95rem; padding: 0 .2rem; }
+.grid-nav .back { font-size: .85rem; margin-left: auto; color: var(--accent); }
+
+/* tap to tick, hold for the detail: no text selection or callout on a held cell */
+.cell, .tile { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+.habits-hint { text-align: center; color: var(--muted); font-size: .8rem; margin: .8rem 0 0; }
+.habits-foot { display: flex; justify-content: center; margin-top: .4rem; }
+.habits-foot button { font-size: .88rem; }
+
+/* phones: adding a habit is a round button at the end of the head row */
+button.add-round { flex: none; width: 2.3rem; height: 2.3rem; padding: 0; border-radius: 50%; font-size: 1.4rem; line-height: 1; }
+
+/* the habit editor's less-used settings */
+details.more { border-top: 1px solid var(--border); padding-top: .6rem; }
+details.more > summary { cursor: pointer; font-size: .9rem; text-align: left; color: var(--text); }
+details.more > summary small { margin-left: .3rem; }
+details.more[open] { display: flex; flex-direction: column; gap: .9rem; }
+details.more[open] > summary { margin-bottom: .1rem; }

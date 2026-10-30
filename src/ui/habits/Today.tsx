@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useLinger, usePress } from "../hooks";
 import type { Habit } from "../../model/types";
 import { displayOf, habitHue, isDone, manualDone, signalsOf, type DoneIndex } from "../../model/reduce";
 import { countsOn, dayState, expectationOf, habitStreak, progress, streakUnit } from "../../model/schedule";
 import type { Signals } from "../../signals/useSignals";
-import { currentValue, dayProgress, excusedLabel } from "./SignalsUI";
+import { currentValue, dayProgress, excuseLabel } from "./SignalsUI";
 import { Check, Excused } from "./icons";
 
 /**
@@ -59,12 +59,9 @@ export function tileSub(signals: Signals, idx: DoneIndex, h: Habit, today: strin
   return n > 0 ? `🔥 ${n}${streakUnit(exp)}` : undefined;
 }
 
-/** What a tap did: toggled the check-in, or opened the day's detail. */
-export type TapResult = "toggled" | "detail";
+export const LINGER_MS = 900;
 
-const LINGER_MS = 900;
-
-/** Today's habits as big tiles: tap to tick off, long-press for the day's detail. */
+/** Today's habits as big tiles: tap to tick off, hold (or right-click) for the day's detail. */
 export function TodayTiles(props: {
   habits: readonly Habit[];
   idx: DoneIndex;
@@ -72,30 +69,12 @@ export function TodayTiles(props: {
   noted: ReadonlySet<string>;
   today: string;
   hideDone: boolean;
-  onTap: (h: Habit) => TapResult;
+  onToggle: (h: Habit) => void;
   onDetail: (h: Habit) => void;
 }) {
   const { idx, today } = props;
-  const [keep, setKeep] = useState<ReadonlySet<string>>(new Set());
-  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  useEffect(() => () => timers.current.forEach(clearTimeout), []);
-
-  const linger = (id: string) => {
-    clearTimeout(timers.current.get(id));
-    setKeep((k) => new Set(k).add(id));
-    timers.current.set(
-      id,
-      setTimeout(() => {
-        timers.current.delete(id);
-        setKeep((k) => {
-          const n = new Set(k);
-          n.delete(id);
-          return n;
-        });
-      }, LINGER_MS),
-    );
-  };
-
+  const [keep, linger] = useLinger(LINGER_MS);
+  const press = usePress();
   const s = todaySections(props.habits, idx, today, { hideDone: props.hideDone, keep });
 
   const tile = (h: Habit) => (
@@ -107,11 +86,14 @@ export function TodayTiles(props: {
       noted={props.noted}
       today={today}
       leaving={props.hideDone && keep.has(h.id) && isDone(idx, h, today)}
-      onTap={() => {
-        const was = isDone(idx, h, today);
-        if (props.onTap(h) === "toggled" && !was && props.hideDone) linger(h.id);
-      }}
-      onDetail={() => props.onDetail(h)}
+      press={press(
+        () => {
+          const was = isDone(idx, h, today);
+          props.onToggle(h);
+          if (!was && props.hideDone) linger(h.id);
+        },
+        () => props.onDetail(h),
+      )}
     />
   );
 
@@ -145,8 +127,7 @@ function Tile(props: {
   noted: ReadonlySet<string>;
   today: string;
   leaving: boolean;
-  onTap: () => void;
-  onDetail: () => void;
+  press: ReturnType<ReturnType<typeof usePress>>;
 }) {
   const { habit: h, idx, signals, today } = props;
   const state = dayState(idx, h, today);
@@ -155,9 +136,8 @@ function Tile(props: {
   const prog = linked && state !== "unknown" ? dayProgress(signals, h, today) : undefined;
   const partial = !done && prog?.fraction !== undefined && prog.fraction > 0 && state !== "excused";
   const sub = tileSub(signals, idx, h, today);
-  const press = useLongPress(props.onDetail);
   const status =
-    state === "excused" ? excusedLabel(signals, h)
+    state === "excused" ? excuseLabel(signals, idx, h, today)
     : state === "unknown" ? "no data yet"
     : state === "covered" ? "covered"
     : state === "late" ? "late"
@@ -169,15 +149,7 @@ function Tile(props: {
       style={{ "--h": habitHue(h) }}
       aria-pressed={done}
       aria-label={`${h.name}${status ? ` (${status})` : ""}${sub ? `: ${sub}` : ""}`}
-      onClick={() => {
-        if (!press.consumed()) props.onTap();
-      }}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        press.cancel();
-        props.onDetail();
-      }}
-      {...press.handlers}
+      {...props.press}
     >
       <span class="tile-text">
         <span class="tile-name">{h.name}</span>
@@ -193,49 +165,4 @@ function Tile(props: {
       </span>
     </button>
   );
-}
-
-const LONG_PRESS_MS = 450;
-
-/**
- * Press and hold for `onLong`. The click that ends a long press is swallowed:
- * check `consumed()` in onClick. Moving the finger (a scroll) cancels it.
- */
-function useLongPress(onLong: () => void) {
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const fired = useRef(false);
-  const start = useRef<{ x: number; y: number } | undefined>(undefined);
-  const cancel = () => {
-    clearTimeout(timer.current);
-    timer.current = undefined;
-  };
-  useEffect(() => cancel, []);
-  return {
-    cancel,
-    consumed: () => {
-      const f = fired.current;
-      fired.current = false;
-      return f;
-    },
-    handlers: {
-      onPointerDown: (e: PointerEvent) => {
-        if (e.button !== 0) return;
-        fired.current = false;
-        start.current = { x: e.clientX, y: e.clientY };
-        cancel();
-        timer.current = setTimeout(() => {
-          fired.current = true;
-          timer.current = undefined;
-          onLong();
-        }, LONG_PRESS_MS);
-      },
-      onPointerMove: (e: PointerEvent) => {
-        const p = start.current;
-        if (p && timer.current && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 10) cancel();
-      },
-      onPointerUp: cancel,
-      onPointerCancel: cancel,
-      onPointerLeave: cancel,
-    },
-  };
 }

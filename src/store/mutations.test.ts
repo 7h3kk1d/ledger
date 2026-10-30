@@ -1,10 +1,13 @@
 import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
 import { Repo, type DocHandle } from "@automerge/automerge-repo";
-import { activeHabits, currentEvents, displayOf, habitDoneOn, notesOn, signalsOf } from "../model/reduce";
+import { activeHabits, currentEvents, displayOf, doneIndex, excusesOn, habitDoneOn, isExcused, notesOn, signalsOf } from "../model/reduce";
+import { dayState, habitStreak } from "../model/schedule";
 import type { LedgerDoc } from "../model/types";
 import {
   addNote,
+  excuseDay,
+  unexcuseDay,
   createHabit,
   logEvent,
   moveHabit,
@@ -110,13 +113,35 @@ describe("notes and linked signals", () => {
     const h = newHandle();
     const habitId = createHabit(h, "Duolingo");
     const habit = doc(h).habits[habitId]!;
-    addNote(h, habitId, "2026-10-20", "Travel", "flight to Denver");
+    addNote(h, habitId, "2026-10-20", "flight to Denver");
     const notes = notesOn(doc(h), habitId, "2026-10-20");
-    expect(notes.map((n) => [n.reason, n.text])).toEqual([["Travel", "flight to Denver"]]);
+    expect(notes.map((n) => [n.reason, n.text])).toEqual([["", "flight to Denver"]]);
     expect(notesOn(doc(h), "other", "2026-10-20")).toEqual([]);
     expect(habitDoneOn(doc(h), habit, "2026-10-20")).toBe(false);
+    expect(isExcused(doneIndex(doc(h)), habit, "2026-10-20")).toBe(false);
     tombstoneEvent(h, notes[0]!.event);
     expect(notesOn(doc(h), habitId, "2026-10-20")).toEqual([]);
+  });
+
+  it("excuses a day by hand, apart from notes, and takes it back", () => {
+    const h = newHandle();
+    const habitId = createHabit(h, "Stretch");
+    const habit = doc(h).habits[habitId]!;
+    toggleHabit(h, habit, "2026-10-18");
+    toggleHabit(h, habit, "2026-10-20");
+    // the 19th missed: the streak through the 20th is 1
+    expect(habitStreak(doneIndex(doc(h)), habit, "2026-10-20")).toBe(1);
+    excuseDay(h, habitId, "2026-10-19", "Sick");
+    excuseDay(h, habitId, "2026-10-19", "again"); // already excused: nothing new
+    expect(excusesOn(doc(h), habitId, "2026-10-19").map((x) => x.reason)).toEqual(["Sick"]);
+    expect(notesOn(doc(h), habitId, "2026-10-19")).toEqual([]);
+    const idx = doneIndex(doc(h));
+    expect(isExcused(idx, habit, "2026-10-19")).toBe(true);
+    expect(dayState(idx, habit, "2026-10-19")).toBe("excused");
+    // excused days are skipped, not counted
+    expect(habitStreak(idx, habit, "2026-10-20")).toBe(2);
+    unexcuseDay(h, habitId, "2026-10-19");
+    expect(isExcused(doneIndex(doc(h)), habit, "2026-10-19")).toBe(false);
   });
 
   it("links signals and display settings, and clears them", () => {

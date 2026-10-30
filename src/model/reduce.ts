@@ -69,17 +69,26 @@ export interface DoneIndex {
   types: Map<string, Set<string>>;
   /** Linked signals' observations by local date, per signal id. */
   signals: SignalIndex;
+  /** Days excused by hand (see EXCUSE_TYPE), per habit id. */
+  excused?: Map<string, Set<string>>;
 }
 
 /** One pass over the log; views look dates up here instead of rescanning. */
 export function doneIndex(doc: Pick<LedgerDoc, "events">, signals: SignalIndex = new Map()): DoneIndex {
   const types = new Map<string, Set<string>>();
+  const excused = new Map<string, Set<string>>();
   for (const e of currentEvents(doc)) {
+    const date = occurredDate(e.occurred);
     let days = types.get(e.typeId);
     if (!days) types.set(e.typeId, (days = new Set()));
-    days.add(occurredDate(e.occurred));
+    days.add(date);
+    if (e.typeId === EXCUSE_TYPE && typeof e.attrs.habit === "string") {
+      let ex = excused.get(e.attrs.habit);
+      if (!ex) excused.set(e.attrs.habit, (ex = new Set()));
+      ex.add(date);
+    }
   }
-  return { types, signals };
+  return { types, signals, excused };
 }
 
 const validId = (s: unknown): s is string => typeof s === "string" && s.length > 0;
@@ -163,9 +172,17 @@ export function isDone(idx: DoneIndex, habit: Habit, date: string): boolean {
   return manualDone(idx, habit, date) || signalDone(idx, habit, date);
 }
 
-/** Not done, but a linked signal excuses the day (e.g. a streak freeze). */
+/** Excused by hand that day (see EXCUSE_TYPE), whether or not it was also done. */
+export const excusedByHand = (idx: DoneIndex, habit: Habit, date: string): boolean =>
+  idx.excused?.get(habit.id)?.has(date) === true;
+
+/**
+ * Not done, but excused: by hand, or by a linked signal (e.g. a streak
+ * freeze). An excused day neither adds to a streak nor breaks it.
+ */
 export function isExcused(idx: DoneIndex, habit: Habit, date: string): boolean {
-  return !isDone(idx, habit, date) && signalsOf(habit).some((s) => idx.signals.get(s)?.excused.has(date));
+  if (isDone(idx, habit, date)) return false;
+  return excusedByHand(idx, habit, date) || signalsOf(habit).some((s) => idx.signals.get(s)?.excused.has(date));
 }
 
 /**
@@ -226,7 +243,6 @@ export function archivedHabits(doc: Pick<LedgerDoc, "habits">): Habit[] {
   return Object.values(doc.habits).filter((h) => h.archived).sort(byOrder);
 }
 
-/** The event type of notes on a day (see notesOn); created on first use. */
 const validTag = (t: unknown): t is Tag =>
   typeof t === "object" && t !== null && validId((t as Tag).id) && typeof (t as Tag).name === "string";
 
@@ -257,17 +273,19 @@ export function withTag<H extends { id: string }>(
   return habits.filter((h) => hasTag(doc, h.id, tagId));
 }
 
+/** The event type of notes on a day (see notesOn); created on first use. */
 export const NOTE_TYPE = "ledger:note";
 
 export interface Note {
   event: Event;
+  /** Only on notes from before notes were plain text; new notes leave it empty. */
   reason: string;
   text: string;
 }
 
 /**
- * Live notes about a habit on a local date. A note explains a day (a reason
- * such as travel, and optional text) without changing whether it's done.
+ * Live notes about a habit on a local date. A note is only words about the
+ * day: it never changes whether the day is done, missed or excused.
  */
 export function notesOn(doc: Pick<LedgerDoc, "events">, habitId: string, date: string): Note[] {
   return currentEvents(doc)
@@ -281,4 +299,23 @@ export function noteIndex(doc: Pick<LedgerDoc, "events">): Set<string> {
   for (const e of currentEvents(doc))
     if (e.typeId === NOTE_TYPE && typeof e.attrs.habit === "string") out.add(`${e.attrs.habit} ${occurredDate(e.occurred)}`);
   return out;
+}
+
+/**
+ * The event type of days excused by hand (sick, travelling): attrs
+ * `{ habit, reason? }`. Separate from notes: an excuse keeps a streak going,
+ * a note never changes anything. Created on first use.
+ */
+export const EXCUSE_TYPE = "ledger:excuse";
+
+export interface Excuse {
+  event: Event;
+  reason: string;
+}
+
+/** Live hand excuses of a habit on a local date (normally one). */
+export function excusesOn(doc: Pick<LedgerDoc, "events">, habitId: string, date: string): Excuse[] {
+  return currentEvents(doc)
+    .filter((e) => e.typeId === EXCUSE_TYPE && e.attrs.habit === habitId && occurredDate(e.occurred) === date)
+    .map((e) => ({ event: e, reason: String(e.attrs.reason ?? "") }));
 }

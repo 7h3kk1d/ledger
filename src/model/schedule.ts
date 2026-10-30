@@ -94,11 +94,11 @@ export function isScheduled(habit: Habit, date: string): boolean {
 }
 
 /**
- * Whether excuses (a linked signal's "knowingly skipped, and that's fine")
+ * Whether excuses (by hand, or a linked signal's "knowingly skipped, and that's fine")
  * apply to the habit. Only day-by-day habits for now: an excused day is left
  * out like a rest day. Interval and per-period habits ignore them.
  */
-const excusable = (e: Expectation) => e.kind === "daily" || e.kind === "weekdays";
+export const excusable = (e: Expectation) => e.kind === "daily" || e.kind === "weekdays";
 
 /** Whether the habit still needs doing on `date`, ignoring a check-in that day. */
 export function isDue(idx: DoneIndex, habit: Habit, date: string): boolean {
