@@ -1,9 +1,10 @@
-import { Repo, type AutomergeUrl, type DocHandle } from "@automerge/automerge-repo";
+import { decodeHeads, Repo, type AutomergeUrl, type DocHandle, type UrlHeads } from "@automerge/automerge-repo";
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
 import { WebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket";
 import { DATA_EPOCH, type LedgerDoc, type RootDoc } from "../model/types";
 import { habitSeed, rollover, switchTo } from "./root";
-import { ensureTags, healTags } from "./mutations";
+import { dateHabits, ensureTags, healTags } from "./mutations";
+import { unsynced } from "./sync";
 
 export * from "./mutations";
 
@@ -98,6 +99,7 @@ export const openCurrent = async (root: DocHandle<RootDoc>) => {
   const h = await find<LedgerDoc>((root.doc() as RootDoc).current as AutomergeUrl);
   ensureTags(h);
   healTags(h);
+  dateHabits(h);
   // maps made elsewhere can meet ours in any later sync
   if (!healing.has(h)) {
     healing.add(h);
@@ -116,13 +118,71 @@ export const switchToDoc = (root: DocHandle<RootDoc>, url: string) =>
   switchTo(root, url as AutomergeUrl, "switch");
 
 /** Connected to the sync server or not; calls back now and on every change. */
-export function onSyncStatus(cb: (connected: boolean) => void): () => void {
-  const up = () => cb(true);
-  const down = () => cb(false);
+export interface SyncStatus {
+  online: boolean;
+  /** Changes on this device the server doesn't have; undefined if unknown. */
+  unsynced?: number;
+  /** When the server last had everything on this device (ms). */
+  syncedAt?: number;
+}
+
+/**
+ * Whether the server is connected, and whether it has every change made here.
+ * The server's last known heads are kept per doc in localStorage, so a device
+ * that opens offline can still say what's waiting.
+ */
+export function watchSync(handle: DocHandle<LedgerDoc>, cb: (s: SyncStatus) => void): () => void {
+  const key = `ledger.synced.${handle.documentId}`;
+  type Known = { heads: UrlHeads; at: number };
+  let known: Known | undefined;
+  try {
+    known = JSON.parse(localStorage.getItem(key) ?? "null") ?? undefined;
+  } catch {
+    known = undefined;
+  }
+  const save = (k: Known) => {
+    known = k;
+    try {
+      localStorage.setItem(key, JSON.stringify(k));
+    } catch {
+      // storage blocked: the status lasts until reload
+    }
+  };
+  let online = network.isReady() && network.remotePeerId !== undefined;
+  const count = () => {
+    const doc = handle.doc();
+    return known && doc ? unsynced(doc, decodeHeads(known.heads)) : undefined;
+  };
+  const emit = () => cb({ online, unsynced: count(), syncedAt: known?.at });
+
+  // already synced before we started watching (the doc was open first)
+  const peer = network.remotePeerId;
+  const storageId = peer && repo.peerMetadataByPeerId[peer]?.storageId;
+  const info = storageId ? handle.getSyncInfo(storageId) : undefined;
+  if (info) save({ heads: info.lastHeads, at: info.lastSyncTimestamp });
+
+  const onRemote = ({ heads, timestamp }: { heads: UrlHeads; timestamp: number }) => {
+    save({ heads, at: timestamp });
+    emit();
+  };
+  const up = () => {
+    online = true;
+    emit();
+  };
+  const down = () => {
+    online = false;
+    // the last moment the server had everything: now, if nothing was waiting
+    if (known && count() === 0) save({ ...known, at: Date.now() });
+    emit();
+  };
+  handle.on("remote-heads", onRemote);
+  handle.on("change", emit);
   network.on("peer-candidate", up);
   network.on("peer-disconnected", down);
-  cb(network.isReady() && network.remotePeerId !== undefined);
+  emit();
   return () => {
+    handle.off("remote-heads", onRemote);
+    handle.off("change", emit);
     network.off("peer-candidate", up);
     network.off("peer-disconnected", down);
   };

@@ -67,6 +67,7 @@ import { useLinger, useMedia, usePref, usePress, useToday } from "../hooks";
 import { Check, Excused } from "./icons";
 import { LINGER_MS, todaySections, TodayTiles } from "./Today";
 import { ManageHabits, TagField, TagFilter } from "./Tags";
+import { HabitPage } from "./HabitPage";
 
 export { Check };
 import { Modal } from "../Modal";
@@ -83,11 +84,14 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const doc = useDoc(handle);
   const today = useToday();
   const narrow = useMedia("(max-width: 520px)");
-  const DAYS = narrow ? 5 : 7;
+  // phones put each name on its own line above its cells (style.css), so a whole week fits
+  const DAYS = 7;
   // pages back from today, so the view follows the date across midnight
   const [page, setPage] = useState(0);
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // the habit whose history is open (its name in the grid, or a day's detail)
+  const [pageId, setPageId] = useState<string | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const [managing, setManaging] = useState(false);
   const press = usePress();
@@ -126,6 +130,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const habits = withTag(doc, allActive, tag?.id);
   const archived = archivedHabits(doc);
   const editing = editingId ? doc.habits[editingId] : undefined;
+  const pageHabit = pageId ? doc.habits[pageId] : undefined;
   // habits not due today (a weekday off, a weekly target met) stay out of the count
   const dueToday = habits.filter((h) => countsOn(idx, h, today));
   const doneToday = dueToday.filter((h) => isDone(idx, h, today)).length;
@@ -203,7 +208,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
               <Grip />
             </button>
           )}
-          <button class="habit-name" onClick={() => setEditingId(h.id)}>
+          <button class="habit-name" title="History and notes" onClick={() => setPageId(h.id)}>
             <span class="dot" />
             <span>
               {h.name}
@@ -372,6 +377,22 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
         </button>
       </div>
 
+      {pageHabit && !pageHabit.archived && (
+        <HabitPage
+          habit={pageHabit}
+          doc={doc}
+          idx={idx}
+          signals={signals}
+          noted={noted}
+          tags={tagsOf(doc, pageHabit.id)}
+          today={today}
+          onToggle={(d) => toggleHabit(handle, pageHabit, d)}
+          onDetail={(d) => openDetail(pageHabit, d)}
+          onEdit={() => setEditingId(pageHabit.id)}
+          onClose={() => setPageId(null)}
+        />
+      )}
+
       {editing && (
         <EditHabit
           habit={editing}
@@ -396,6 +417,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
           onArchive={() => {
             setHabitArchived(handle, editing.id, true);
             setEditingId(null);
+            setPageId(null);
           }}
         />
       )}
@@ -415,6 +437,14 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
           onUnexcuse={() => unexcuseDay(handle, detailHabit.id, detail.date)}
           onAddNote={(text) => addNote(handle, detailHabit.id, detail.date, text)}
           onDeleteNote={(e) => tombstoneEvent(handle, e)}
+          onOpenHabit={
+            pageId === detailHabit.id
+              ? undefined
+              : () => {
+                  setDetail(null);
+                  setPageId(detailHabit.id);
+                }
+          }
           onClose={() => setDetail(null)}
         />
       )}

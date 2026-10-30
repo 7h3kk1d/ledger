@@ -1,11 +1,12 @@
 import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
 import { Repo, type DocHandle } from "@automerge/automerge-repo";
-import { activeHabits, currentEvents, displayOf, doneIndex, excusesOn, habitDoneOn, isExcused, notesOn, signalsOf } from "../model/reduce";
+import { activeHabits, currentEvents, displayOf, doneIndex, excusesOn, habitDoneOn, habitLog, isExcused, notesOn, signalsOf } from "../model/reduce";
 import { dayState, habitStreak } from "../model/schedule";
 import type { LedgerDoc } from "../model/types";
 import {
   addNote,
+  dateHabits,
   excuseDay,
   unexcuseDay,
   createHabit,
@@ -79,6 +80,35 @@ describe("toggleHabit", () => {
   });
 });
 
+describe("when habits were made", () => {
+  it("records it on new habits", () => {
+    const h = newHandle();
+    const before = Date.now();
+    const id = createHabit(h, "Stretch");
+    expect(Date.parse(doc(h).habits[id]!.createdAt!)).toBeGreaterThanOrEqual(before - 1000);
+  });
+
+  it("estimates it for older habits from the doc's changes and their events", () => {
+    const h = newHandle();
+    const a = createHabit(h, "Stretch");
+    const b = createHabit(h, "Read");
+    // ticked off before the habit was added: the tick is the earlier sign
+    toggleHabit(h, doc(h).habits[b]!, "2026-01-05");
+    h.change((d) => {
+      delete d.habits[a]!.createdAt;
+      delete d.habits[b]!.createdAt;
+    });
+    const before = Date.now();
+    dateHabits(h);
+    expect(Math.abs(Date.parse(doc(h).habits[a]!.createdAt!) - before)).toBeLessThan(5000);
+    expect(doc(h).habits[b]!.createdAt).toBe(new Date("2026-01-05T00:00").toISOString());
+    // done once: a second open changes nothing
+    const heads = h.heads();
+    dateHabits(h);
+    expect(h.heads()).toEqual(heads);
+  });
+});
+
 describe("habit order", () => {
   it("appends new habits and moves them to a position", () => {
     const h = newHandle();
@@ -142,6 +172,23 @@ describe("notes and linked signals", () => {
     expect(habitStreak(idx, habit, "2026-10-20")).toBe(2);
     unexcuseDay(h, habitId, "2026-10-19");
     expect(isExcused(doneIndex(doc(h)), habit, "2026-10-19")).toBe(false);
+  });
+
+  it("lists a habit's notes and excuses, newest day first", () => {
+    const h = newHandle();
+    const habitId = createHabit(h, "Stretch");
+    const other = createHabit(h, "Read");
+    addNote(h, habitId, "2026-10-18", "sore");
+    excuseDay(h, habitId, "2026-10-20", "Sick");
+    addNote(h, habitId, "2026-10-20", "flu");
+    addNote(h, other, "2026-10-19", "not this one");
+    addNote(h, habitId, "2026-10-19", "deleted");
+    tombstoneEvent(h, notesOn(doc(h), habitId, "2026-10-19")[0]!.event);
+    expect(habitLog(doc(h), habitId).map((e) => [e.date, e.kind, e.text])).toEqual([
+      ["2026-10-20", "excuse", "Sick"],
+      ["2026-10-20", "note", "flu"],
+      ["2026-10-18", "note", "sore"],
+    ]);
   });
 
   it("links signals and display settings, and clears them", () => {

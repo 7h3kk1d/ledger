@@ -43,6 +43,11 @@ export interface Habit {
   expectation: Expectation;
   /** Hidden from the tracker; history is kept. */
   archived?: true;
+  /**
+   * When the habit was made (ISO). Habits from before this was kept get an
+   * estimate on open (`dateHabits`); a reset carries it into the new doc.
+   */
+  createdAt?: string;
   /** Display position; lower first. */
   order?: number;
   /** Accent colour hue (0-360); derived from the id when unset. */

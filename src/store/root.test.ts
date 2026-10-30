@@ -33,6 +33,8 @@ describe("root doc", () => {
     const habits = activeHabits(doc(next));
     expect(habits.map((h) => h.name)).toEqual(["Floss", "Anki"]);
     expect(habits.map(habitHue)).toEqual(activeHabits(doc(ledger)).map(habitHue));
+    // when each habit was made carries over, not the time of the reset
+    expect(habits.map((h) => h.createdAt)).toEqual(activeHabits(doc(ledger)).map((h) => h.createdAt));
     expect(Object.keys(doc(next).events)).toEqual([]);
     expect(doc(root).current).toBe(next.url);
     expect(doc(root).history).toMatchObject([{ url: ledger.url, epoch: DATA_EPOCH, reason: "reset" }]);
@@ -52,9 +54,12 @@ describe("root doc", () => {
     ]);
   });
 
-  it("an epoch rollover keeps names only", () => {
+  it("an epoch rollover keeps names only, and when each was made", () => {
     const { ledger } = setup();
-    expect(habitSeed(doc(ledger), true)).toEqual([{ name: "Floss" }, { name: "Anki" }, { name: "Old" }]);
+    const seed = habitSeed(doc(ledger), true);
+    expect(seed.map((s) => s.name)).toEqual(["Floss", "Anki", "Old"]);
+    expect(seed.map((s) => Object.keys(s).sort())).toEqual(Array(3).fill(["createdAt", "name"]));
+    expect(seed.every((s) => typeof s.createdAt === "string")).toBe(true);
   });
 
   it("never lowers the epoch", () => {

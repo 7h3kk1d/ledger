@@ -319,3 +319,29 @@ export function excusesOn(doc: Pick<LedgerDoc, "events">, habitId: string, date:
     .filter((e) => e.typeId === EXCUSE_TYPE && e.attrs.habit === habitId && occurredDate(e.occurred) === date)
     .map((e) => ({ event: e, reason: String(e.attrs.reason ?? "") }));
 }
+
+/** A note or hand excuse about one of a habit's days, for its history. */
+export interface LogEntry {
+  date: string;
+  kind: "note" | "excuse";
+  event: Event;
+  /** The note's text, or the excuse's reason (may be empty). */
+  text: string;
+  /** Only on older notes, which carried a reason. */
+  reason: string;
+}
+
+/** Every live note and hand excuse of a habit, newest day first. */
+export function habitLog(doc: Pick<LedgerDoc, "events">, habitId: string): LogEntry[] {
+  const out: LogEntry[] = [];
+  for (const e of currentEvents(doc)) {
+    if (e.attrs.habit !== habitId) continue;
+    const date = occurredDate(e.occurred);
+    if (e.typeId === NOTE_TYPE)
+      out.push({ date, kind: "note", event: e, text: String(e.attrs.text ?? ""), reason: String(e.attrs.reason ?? "") });
+    else if (e.typeId === EXCUSE_TYPE)
+      out.push({ date, kind: "excuse", event: e, text: String(e.attrs.reason ?? ""), reason: "" });
+  }
+  // newest day first; on a day, the excuse before its notes
+  return out.sort((a, b) => b.date.localeCompare(a.date) || (a.kind === b.kind ? 0 : a.kind === "excuse" ? -1 : 1));
+}

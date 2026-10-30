@@ -17,6 +17,8 @@ export interface SeedHabit {
   thresholds?: Threshold[];
   /** Tag names; tags are made in the new doc as needed. */
   tags?: string[];
+  /** When the habit was first made, kept across resets. */
+  createdAt?: string;
 }
 
 const emptyLedger = (): LedgerDoc => ({ eventTypes: {}, habits: {}, events: {}, tags: {}, tagged: {} });
@@ -25,7 +27,7 @@ const emptyLedger = (): LedgerDoc => ({ eventTypes: {}, habits: {}, events: {}, 
 export function createLedger(repo: Repo, habits: SeedHabit[]): DocHandle<LedgerDoc> {
   const h = repo.create<LedgerDoc>(emptyLedger());
   for (const s of habits) {
-    const id = createHabit(h, s.name, s.expectation);
+    const id = createHabit(h, s.name, s.expectation, s.createdAt);
     if (s.hue !== undefined) setHabitHue(h, id, s.hue);
     if (s.signals?.length) setHabitSignals(h, id, s.signals);
     if (s.display) setHabitDisplay(h, id, s.display);
@@ -42,9 +44,10 @@ export function createLedger(repo: Repo, habits: SeedHabit[]): DocHandle<LedgerD
 export function habitSeed(doc: LedgerDoc, namesOnly = false): SeedHabit[] {
   return activeHabits(doc).map((h) =>
     namesOnly
-      ? { name: h.name }
+      ? { name: h.name, createdAt: h.createdAt }
       : {
           name: h.name,
+          createdAt: h.createdAt,
           hue: habitHue(h),
           expectation: h.expectation,
           signals: signalsOf(h),

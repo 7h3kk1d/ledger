@@ -1,5 +1,6 @@
 // Mutations on a ledger doc handle. No browser or Vite dependencies, so the
 // bootstrap script can use them too.
+import * as A from "@automerge/automerge";
 import { getConflicts, type DocHandle } from "@automerge/automerge-repo";
 import {
   LOCAL_AUTHOR,
@@ -13,7 +14,7 @@ import {
   type Occurred,
   type Threshold,
 } from "../model/types";
-import { activeHabits, allTags, habitEventsOn, habitHue, HUES, localDate, NOTE_TYPE, EXCUSE_TYPE, excusesOn, taggedKey } from "../model/reduce";
+import { activeHabits, allTags, currentEvents, habitEventsOn, occurredDate, habitHue, HUES, localDate, NOTE_TYPE, EXCUSE_TYPE, excusesOn, taggedKey } from "../model/reduce";
 import { DAILY } from "../model/schedule";
 
 export const newId = () => crypto.randomUUID();
@@ -97,7 +98,12 @@ export function createEventType(h: DocHandle<LedgerDoc>, name: string): string {
 }
 
 /** Daily habits pair 1:1 with an event type of the same name. */
-export function createHabit(h: DocHandle<LedgerDoc>, name: string, expectation: Expectation = DAILY): string {
+export function createHabit(
+  h: DocHandle<LedgerDoc>,
+  name: string,
+  expectation: Expectation = DAILY,
+  createdAt = new Date().toISOString(),
+): string {
   const typeId = createEventType(h, name);
   const id = newId();
   const habit: Habit = {
@@ -105,6 +111,7 @@ export function createHabit(h: DocHandle<LedgerDoc>, name: string, expectation: 
     name,
     eventTypeIds: [typeId],
     expectation: copyExpectation(expectation),
+    createdAt,
   };
   h.change((d) => {
     const existing = Object.values(d.habits);
@@ -115,6 +122,49 @@ export function createHabit(h: DocHandle<LedgerDoc>, name: string, expectation: 
     d.habits[id] = { ...habit, order: Math.max(0, ...orders) + 1, hue };
   });
   return id;
+}
+
+/**
+ * When habits made before `createdAt` was kept were probably made: the
+ * earlier of the doc change that added the habit (Automerge stamps each change
+ * with its time) and the habit's first event, since days can be ticked off
+ * after the fact. A habit carried over by a reset only dates from the reset.
+ */
+export function estimateCreated(doc: LedgerDoc, habitIds: readonly string[]): Map<string, string> {
+  const want = new Set(habitIds);
+  const ms = new Map<string, number>();
+  const seen = (id: string, t: number) => {
+    if (t > 0 && t < (ms.get(id) ?? Infinity)) ms.set(id, t);
+  };
+  // habit ids are random, so a new map under that key is the habit being made
+  for (const c of A.getAllChanges(doc)) {
+    const change = A.decodeChange(c);
+    for (const op of change.ops)
+      if (op.action === "makeMap" && op.key && want.has(op.key)) seen(op.key, change.time * 1000);
+  }
+  for (const id of want) {
+    const habit = doc.habits[id];
+    if (!habit) continue;
+    for (const e of currentEvents(doc)) {
+      if (e.attrs.habit !== id && !habit.eventTypeIds.includes(e.typeId)) continue;
+      seen(id, Date.parse(e.loggedAt));
+      seen(id, new Date(`${occurredDate(e.occurred)}T00:00`).getTime());
+    }
+  }
+  return new Map([...ms].map(([id, t]) => [id, new Date(t).toISOString()]));
+}
+
+/** Gives habits without `createdAt` an estimate (see estimateCreated). Does nothing once all have one. */
+export function dateHabits(h: DocHandle<LedgerDoc>): void {
+  const doc = h.doc();
+  if (!doc) return;
+  const missing = Object.values(doc.habits).filter((x) => !x.createdAt).map((x) => x.id);
+  if (missing.length === 0) return;
+  const est = estimateCreated(doc, missing);
+  if (est.size === 0) return;
+  h.change((d) => {
+    for (const [id, at] of est) if (d.habits[id] && !d.habits[id].createdAt) d.habits[id].createdAt = at;
+  });
 }
 
 /** A plain copy, so a value read from one doc can be written into another. */

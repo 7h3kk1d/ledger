@@ -25,7 +25,12 @@ Personal observability dashboard. This repo currently holds **Track A**: an appe
   makes the day excused, so it neither adds to the streak nor breaks it. Separate from notes; only
   for daily and weekday habits, like a linked signal's excuses.
 - **Hide done** (Today and the current week): habits done or not due today fold away below the rest.
-- Offline works: edits are kept locally and merge when the server is reachable again. The dot in the header shows whether the server is connected.
+- **A habit's history:** tap its name in the week grid (or History in a day's detail) for its streaks,
+  a month of days, and every note and excuse.
+- Offline works: edits are kept locally and merge when the server is reachable again. The dot in the
+  header is green when the server has everything, amber while changes wait for it (with a count when
+  offline), grey when offline; tap it to read which. The server's last known heads are kept per doc
+  in localStorage, so a device that opens offline still knows what's waiting.
 
 ## Dev
 

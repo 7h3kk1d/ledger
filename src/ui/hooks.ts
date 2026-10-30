@@ -93,14 +93,20 @@ const HOLD_MS = 450;
  * `press(onTap, onHold)` gives an element its handlers. Holding, or a
  * right-click, calls onHold, and the click that ends a hold is swallowed.
  * Moving the finger (a scroll) cancels a hold.
+ *
+ * While held, the element has the class `holding` (style.css grows a ring
+ * around it over the hold), and phones that can vibrate buzz when it opens.
  */
 export function usePress() {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const held = useRef(false);
   const start = useRef<{ x: number; y: number } | undefined>(undefined);
+  const el = useRef<HTMLElement | undefined>(undefined);
   const cancel = () => {
     clearTimeout(timer.current);
     timer.current = undefined;
+    el.current?.classList.remove("holding");
+    el.current = undefined;
   };
   useEffect(() => cancel, []);
   return (onTap: () => void, onHold: () => void) => ({
@@ -118,9 +124,12 @@ export function usePress() {
       held.current = false;
       start.current = { x: e.clientX, y: e.clientY };
       cancel();
+      el.current = e.currentTarget as HTMLElement;
+      el.current.classList.add("holding");
       timer.current = setTimeout(() => {
         held.current = true;
-        timer.current = undefined;
+        cancel();
+        navigator.vibrate?.(12);
         onHold();
       }, HOLD_MS);
     },

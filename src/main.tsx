@@ -8,7 +8,6 @@ import {
   exportBackup,
   importBackup,
   LoadError,
-  onSyncStatus,
   openCurrent,
   openLedger,
   outdated,
@@ -17,9 +16,12 @@ import {
   resetData,
   switchToDoc,
   type Ledger,
+  type SyncStatus,
+  watchSync,
 } from "./store/store";
 import { useDoc } from "./store/useDoc";
 import { startSignals } from "./signals/useSignals";
+import { ago } from "./model/signals";
 import { Habits } from "./ui/habits/Habits";
 import { Events } from "./ui/events/Events";
 import { Calendar } from "./ui/calendar/Calendar";
@@ -98,19 +100,18 @@ function LoadErrorScreen({ error }: { error: Error }) {
 function Shell({ root, handle }: Ledger) {
   const [tab, setTab] = useState<Tab>(tabFromHash);
   const [persisted, setPersisted] = useState(true);
-  const [online, setOnline] = useState(false);
+  const [sync, setSync] = useState<SyncStatus>({ online: false });
   const [dialog, setDialog] = useState<"reset" | "previous">();
 
   useEffect(() => {
     requestPersistentStorage().then(setPersisted);
     const onHash = () => setTab(tabFromHash());
     window.addEventListener("hashchange", onHash);
-    const offSync = onSyncStatus(setOnline);
     return () => {
       window.removeEventListener("hashchange", onHash);
-      offSync();
     };
   }, []);
+  useEffect(() => watchSync(handle, setSync), [handle]);
 
   const go = (t: Tab) => {
     history.replaceState(null, "", `#${t}`);
@@ -154,11 +155,7 @@ function Shell({ root, handle }: Ledger) {
           <h1>Ledger</h1>
           {tabs}
           <span class="grow" />
-          <span
-            class={online ? "sync on" : "sync"}
-            title={online ? "Synced with the server" : "Offline: changes sync when the server is reachable"}
-            aria-label={online ? "Online" : "Offline"}
-          />
+          <SyncMenu status={sync} />
           <details class="menu">
             <summary aria-label="Data menu">⋯</summary>
             <div onClick={closeMenu}>
@@ -193,6 +190,36 @@ function Shell({ root, handle }: Ledger) {
       )}
       {dialog === "previous" && <PreviousDialog root={root} onClose={() => setDialog(undefined)} />}
     </>
+  );
+}
+
+/**
+ * The header's sync dot, which opens to say what it means: green when the
+ * server has everything, amber while changes wait for it, grey offline.
+ */
+function SyncMenu({ status }: { status: SyncStatus }) {
+  const { online, unsynced, syncedAt } = status;
+  const waiting = unsynced === undefined ? online : unsynced > 0;
+  const changes = unsynced ? `${unsynced} change${unsynced === 1 ? "" : "s"}` : "Changes";
+  const since = syncedAt ? `Last synced ${ago(new Date(syncedAt).toISOString())}.` : "";
+  const [title, detail] = online
+    ? waiting
+      ? ["Syncing…", `Sending ${changes.toLowerCase()} to the server.`]
+      : ["Synced", "Everything on this device is on the server."]
+    : unsynced
+      ? [`Offline · ${changes} waiting`, `Only on this device until the server is reachable. ${since}`]
+      : ["Offline", `Nothing waiting to sync. ${since}`];
+  return (
+    <details class="menu sync-menu">
+      <summary aria-label={`Sync: ${title}`} title={title}>
+        <span class={`sync${online ? (waiting ? " waiting" : " on") : unsynced ? " waiting" : ""}`} />
+        {!online && unsynced ? <small class="sync-count">{unsynced}</small> : null}
+      </summary>
+      <div>
+        <strong>{title}</strong>
+        <p class="menu-note">{detail.trim()}</p>
+      </div>
+    </details>
   );
 }
 

@@ -483,3 +483,58 @@ details.more > summary { cursor: pointer; font-size: .9rem; text-align: left; co
 details.more > summary small { margin-left: .3rem; }
 details.more[open] { display: flex; flex-direction: column; gap: .9rem; }
 details.more[open] > summary { margin-bottom: .1rem; }
+
+/* phones: each habit's name on its own line, its week of cells below it */
+@media (max-width: 520px) {
+  .grid-head, .grid-row {
+    grid-template-columns: repeat(var(--cols), minmax(0, 1fr)) max(2.6rem, var(--streak-w-narrow, 0px));
+  }
+  .grid-head > span:first-child { display: none; }
+  .grid-row > .habit-cell { grid-column: 1 / -1; margin-bottom: -.2rem; }
+  .grid-row button.habit-name { padding: .45rem .2rem .1rem; }
+  .grid-row .sched { display: inline; margin-left: .45rem; }
+  .grid { --cell-size: 2.15rem; }
+}
+
+/* hold to open a day's detail: a ring grows around what's held */
+.holding { animation: hold-ring .33s ease-in .12s both; }
+@keyframes hold-ring {
+  from { outline: 0 solid transparent; outline-offset: 0; }
+  to { outline: 3px solid var(--habit, var(--accent)); outline-offset: 2px; }
+}
+
+/* the header's sync dot and what it means */
+.sync-menu summary { display: flex; align-items: center; gap: .3rem; padding: .45rem .5rem; }
+.sync.waiting { background: hsl(38 90% 52%); opacity: 1; }
+.sync-count { font-size: .72rem; font-variant-numeric: tabular-nums; color: hsl(38 80% 42%); font-weight: 600; }
+.sync-menu[open] > div { width: 16rem; gap: .1rem; }
+
+/* a habit's history: streaks, a month of days, its notes and excuses */
+.day-status { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin: 0; }
+.history-link { font-size: .88rem; color: var(--accent); flex: none; }
+.habit-page { display: flex; flex-direction: column; gap: .9rem; }
+.habit-page-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; color: var(--muted); font-size: .9rem; }
+.habit-page-head > span { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
+.habit-page-head .chip { font-size: .75rem; }
+.habit-page .stats { margin: 0; }
+.habit-page .stats > div { box-shadow: none; padding: .5rem .6rem; }
+.habit-page .stats strong { font-size: 1.2rem; }
+.month-nav { display: flex; align-items: center; gap: .2rem; margin-bottom: -.4rem; }
+.month-nav strong { font-size: .95rem; padding: 0 .2rem; }
+.month-nav .back { font-size: .85rem; margin-left: auto; color: var(--accent); }
+.habit-cal { --cell-size: min(2.4rem, 10vw); display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: .3rem 0; justify-items: center; }
+.habit-cal .cell { color: var(--text); font-size: .8rem; font-variant-numeric: tabular-nums; }
+.habit-cal .cell.done { color: #fff; font-weight: 600; }
+.habit-cal .cell.excused { color: var(--habit); }
+.habit-cal .cell.covered { background: color-mix(in srgb, var(--habit) 13%, var(--surface)); }
+.habit-cal .cell.rest { color: var(--muted); }
+.habit-cal .cell.future { background: transparent; color: var(--muted); opacity: .5; }
+.habit-cal .cell.today:not(.done) { font-weight: 700; }
+.habit-log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.habit-log li + li { border-top: 1px solid var(--border); }
+.habit-log button {
+  width: 100%; display: flex; align-items: baseline; gap: .7rem; text-align: left;
+  font-size: .92rem; color: var(--text); padding: .45rem .3rem; border-radius: 8px;
+}
+.habit-log time { flex: none; width: 6.5rem; color: var(--muted); font-size: .82rem; font-variant-numeric: tabular-nums; }
+.habit-log strong { color: var(--habit); font-weight: 600; }

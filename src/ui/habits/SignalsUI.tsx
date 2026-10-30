@@ -135,6 +135,8 @@ export function DayDetail(props: {
   onUnexcuse: () => void;
   onAddNote: (text: string) => void;
   onDeleteNote: (e: Event) => void;
+  /** Opens the habit's history; left out when it's already open behind this. */
+  onOpenHabit?: () => void;
   onClose: () => void;
 }) {
   const { habit, date, idx, signals } = props;
@@ -155,7 +157,10 @@ export function DayDetail(props: {
     <Modal title={habit.name} onClose={props.onClose}>
       <div class="day-detail">
         <p class="day-status">
-          {props.dateLabel} · <strong>{status}</strong>
+          <span>{props.dateLabel} · <strong>{status}</strong></span>
+          {props.onOpenHabit && (
+            <button class="ghost history-link" onClick={props.onOpenHabit}>History ›</button>
+          )}
         </p>
         <ul class="sources">
           <li>
