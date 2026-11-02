@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SignalsClient, type CacheStore } from "./client";
+import { SignalsClient, type CacheStore, type ChangeStream } from "./client";
 
 const A = "src/a/me";
 const B = "src/b/me";
@@ -96,5 +96,36 @@ describe("SignalsClient", () => {
     await c.refresh();
     expect(c.snapshot.error).toBe("network down");
     expect(c.snapshot.data.get(A)?.observations).toHaveLength(1);
+  });
+
+  it("refreshes when the change stream names a linked signal, or all of them", async () => {
+    const s = service();
+    const opened: (ChangeStream & { url: string; closed: boolean; send: (d: string) => void })[] = [];
+    const open = (url: string, onMessage: (data: string) => void) => {
+      const st = { url, closed: false, send: onMessage, close: () => void (st.closed = true) };
+      opened.push(st);
+      return st;
+    };
+    const c = new SignalsClient("/signals", memory(), s.fetchFn, open);
+    c.want([A]);
+    await c.refresh();
+    c.listen();
+    c.listen(); // once
+    expect(opened.map((o) => o.url)).toEqual(["/signals/changes?cursor=g1"]);
+    const observations = () => s.requests.filter((u) => u.pathname.endsWith("/observations")).length;
+    const before = observations();
+    opened[0]!.send(JSON.stringify({ cursor: "g2", signals: [B] }));
+    await c.refresh(); // settle: nothing was asked for B
+    expect(observations()).toBe(before + 1);
+    opened[0]!.send(JSON.stringify({ cursor: "g2", signals: [A] }));
+    await c.refresh();
+    expect(observations()).toBeGreaterThanOrEqual(before + 3);
+    const n = observations();
+    opened[0]!.send(JSON.stringify({ cursor: "g3", signals: null }));
+    opened[0]!.send("not json");
+    await c.refresh();
+    expect(observations()).toBeGreaterThan(n);
+    c.unlisten();
+    expect(opened[0]!.closed).toBe(true);
   });
 });

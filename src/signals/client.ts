@@ -3,12 +3,29 @@
 // doc), so habits keep their service data offline and on the next start.
 //
 // Refreshes: on start, when the set of linked signals changes, when the app
-// comes back to the foreground, and every few minutes while it's visible. The
-// service answers "done today?" from a live fetch for sources that have one.
+// comes back to the foreground, when the service says a linked signal changed
+// (/signals/changes, while visible: new data shows within seconds), and every
+// few minutes while it's visible, in case a change was missed. The service
+// answers "done today?" from a live fetch for sources that have one.
 import { mergeAnswer, type SignalAnswer, type SignalData, type SignalInfo } from "../model/signals";
 
 const REFRESH_MS = 5 * 60_000;
 const TIMEOUT_MS = 30_000;
+
+/** A stream of messages from a URL: an EventSource, or a fake in tests. */
+export interface ChangeStream {
+  close(): void;
+}
+export type OpenStream = (url: string, onMessage: (data: string) => void) => ChangeStream;
+
+const openEventSource: OpenStream | undefined =
+  typeof EventSource === "undefined"
+    ? undefined
+    : (url, onMessage) => {
+        const es = new EventSource(url);
+        es.onmessage = (e: MessageEvent<string>) => onMessage(e.data);
+        return es;
+      };
 
 export interface SignalsState {
   /** Configured at all (a `signalsUrl` in /config.json). */
@@ -41,11 +58,14 @@ export class SignalsClient {
   private again = false;
   private timer?: ReturnType<typeof setInterval>;
   private started = false;
+  private stream?: ChangeStream;
+  private onVisibility?: () => void;
 
   constructor(
     private readonly base: string | undefined,
     private readonly cache: CacheStore = idbCache(),
     private readonly fetchFn: typeof fetch = (...a) => fetch(...a),
+    private readonly openStream: OpenStream | undefined = openEventSource,
   ) {
     this.state = { enabled: !!base, catalog: [], data: new Map(), loading: !!base };
   }
@@ -75,18 +95,50 @@ export class SignalsClient {
       this.set({ catalog: kept.catalog, data: new Map(kept.data), lastOk: kept.lastOk });
     }
     this.started = true;
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void this.refresh();
+    this.onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void this.refresh();
+        this.listen();
+      } else {
+        this.unlisten();
+      }
     };
-    document.addEventListener("visibilitychange", onVisible);
+    document.addEventListener("visibilitychange", this.onVisibility);
     this.timer = setInterval(() => {
       if (document.visibilityState === "visible") void this.refresh();
     }, REFRESH_MS);
     await this.refresh();
+    if (document.visibilityState === "visible") this.listen();
   }
 
   stop(): void {
     clearInterval(this.timer);
+    if (this.onVisibility) document.removeEventListener("visibilitychange", this.onVisibility);
+    this.unlisten();
+  }
+
+  /**
+   * Hear from the service when the store moves: refresh when a linked signal
+   * (or every signal: null) may have changed. Only while visible; a hidden
+   * phone tab drops the connection anyway, and coming back refreshes.
+   */
+  listen(): void {
+    if (!this.base || !this.openStream || this.stream) return;
+    const q = this.cursor ? `?cursor=${encodeURIComponent(this.cursor)}` : "";
+    this.stream = this.openStream(`${this.base}/changes${q}`, (data) => {
+      let ids: string[] | null;
+      try {
+        ids = (JSON.parse(data) as { signals: string[] | null }).signals;
+      } catch {
+        return;
+      }
+      if (ids === null || ids.some((id) => this.wanted.includes(id))) void this.refresh();
+    });
+  }
+
+  unlisten(): void {
+    this.stream?.close();
+    this.stream = undefined;
   }
 
   /** The signals habits link to; fetches when a new one appears. */
