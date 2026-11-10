@@ -50,6 +50,11 @@ export interface Habit {
   createdAt?: string;
   /** Display position; lower first. */
   order?: number;
+  /**
+   * Held at this slot (0 = top) in the list, which otherwise sorts itself
+   * (smartOrder); set by dragging the habit. Unset: the habit sorts itself.
+   */
+  pin?: number;
   /** Accent colour hue (0-360); derived from the id when unset. */
   hue?: number;
   /**

@@ -47,7 +47,6 @@ import {
   createHabit,
   createTag,
   deleteTag,
-  moveHabit,
   renameTag,
   setHabitTag,
   setHabitExpectation,
@@ -57,15 +56,17 @@ import {
   setHabitHue,
   setHabitSignals,
   setHabitThresholds,
+  pinHabit,
   toggleHabit,
   tombstoneEvent,
+  unpinHabit,
 } from "../../store/store";
 import { useSignals, type Signals } from "../../signals/useSignals";
 import { cellValue, currentValue, DayDetail, dayProgress, excuseLabel, LinkedDataField } from "./SignalsUI";
 import { useDoc } from "../../store/useDoc";
 import { useLinger, useMedia, usePref, usePress, useToday } from "../hooks";
-import { Check, Excused } from "./icons";
-import { LINGER_MS, todaySections, TodayTiles } from "./Today";
+import { Check, Excused, Pin } from "./icons";
+import { LINGER_MS, smartOrder, todaySections, TodayTiles } from "./Today";
 import { ManageHabits, TagField, TagFilter } from "./Tags";
 import { HabitPage } from "./HabitPage";
 
@@ -96,10 +97,8 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const [managing, setManaging] = useState(false);
   const press = usePress();
   const coarse = useMedia("(pointer: coarse)");
-  // positions in the filtered list map to positions among all habits
-  const moveTo = (habitId: string, to: number) =>
-    moveHabit(handle, habitId, allActive.findIndex((x) => x.id === rows[to]?.id));
-  const reorder = useReorder(gridRef, (from, to) => moveTo(rows[from]!.id, to));
+  // the list sorts itself; dragging a habit pins it where it's dropped
+  const reorder = useReorder(gridRef, (from, to) => pinHabit(handle, rows[from]!.id, to));
   const [kept, keep] = useLinger(LINGER_MS);
 
   const signals = useSignals(doc);
@@ -116,8 +115,8 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const toggle = (h: Habit, d: string) => {
     const was = isDone(idx, h, d);
     toggleHabit(handle, h, d);
-    // ticked off today with done hidden: stays a moment before it folds away
-    if (split && d === today && !was) keep(h.id);
+    // ticked off today: stays a moment before it moves down (or folds away)
+    if (d === today && !was) keep(h.id);
   };
   const openDetail = (h: Habit, d: string) => setDetail({ habitId: h.id, date: d });
   const end = shiftDate(today, -DAYS * page);
@@ -136,10 +135,12 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
   const doneToday = dueToday.filter((h) => isDone(idx, h, today)).length;
   // With done hidden, the week of today keeps only what's left to do today in the
   // grid; the rest folds away below it. An earlier week shows every habit.
+  // always today's order, so paging back through weeks doesn't reshuffle it
+  const ordered = smartOrder(habits, idx, today, kept);
   const sections = todaySections(habits, idx, today, { hideDone, keep: kept });
   const split = hideDone && page === 0;
-  const rows = split ? sections.open : habits;
-  const folded = split ? habits.filter((h) => !sections.open.includes(h)) : [];
+  const rows = split ? sections.open : ordered;
+  const folded = split ? ordered.filter((h) => !sections.open.includes(h)) : [];
   const foldedLabel = [
     sections.done.length > 0 && `${sections.done.length} done`,
     sections.notDue.length > 0 && `${sections.notDue.length} not due`,
@@ -195,17 +196,18 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
             <span class="grip" />
           ) : (
             <button
-              class="grip"
-              aria-label={`Reorder ${h.name} (arrow keys)`}
+              class={h.pin !== undefined ? "grip pinned" : "grip"}
+              aria-label={`${h.pin !== undefined ? "Pinned. Move" : "Pin"} ${h.name} (drag or arrow keys)`}
+              title={h.pin !== undefined ? "Pinned here; unpin from its page" : "Drag to pin in place"}
               onPointerDown={(e) => reorder.start(e, i)}
               onKeyDown={(e) => {
                 const to = e.key === "ArrowUp" ? i - 1 : e.key === "ArrowDown" ? i + 1 : -1;
                 if (to < 0 || to >= rows.length) return;
                 e.preventDefault();
-                moveTo(h.id, to);
+                pinHabit(handle, h.id, to);
               }}
             >
-              <Grip />
+              {h.pin !== undefined ? <Pin /> : <Grip />}
             </button>
           )}
           <button class="habit-name" title="History and notes" onClick={() => setPageId(h.id)}>
@@ -368,7 +370,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
 
       {allActive.length > 0 && (
         <p class="hint habits-hint">
-          {coarse ? "Tap to tick off · hold" : "Click to tick off · right-click"} for notes, excuses and details
+          {coarse ? "Tap to tick off · hold" : "Click to tick off · right-click"} for notes, excuses and details{view === "week" && " · drag to pin"}
         </p>
       )}
       <div class="habits-foot">
@@ -389,6 +391,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
           onToggle={(d) => toggleHabit(handle, pageHabit, d)}
           onDetail={(d) => openDetail(pageHabit, d)}
           onEdit={() => setEditingId(pageHabit.id)}
+          onUnpin={() => unpinHabit(handle, pageHabit.id)}
           onClose={() => setPageId(null)}
         />
       )}

@@ -34,6 +34,7 @@ export function HabitPage(props: {
   onToggle: (date: string) => void;
   onDetail: (date: string) => void;
   onEdit: () => void;
+  onUnpin: () => void;
   onClose: () => void;
 }) {
   const { habit: h, idx, signals, today } = props;
@@ -72,7 +73,14 @@ export function HabitPage(props: {
             {scheduleLabel(exp)}
             {props.tags.map((t) => <span key={t.id} class="chip">{t.name}</span>)}
           </span>
-          <button onClick={props.onEdit}>Edit</button>
+          <span>
+            {h.pin !== undefined && (
+              <button class="ghost" title="Pinned in place in the list; let it sort itself again" onClick={props.onUnpin}>
+                Unpin
+              </button>
+            )}
+            <button onClick={props.onEdit}>Edit</button>
+          </span>
         </div>
 
         <div class="stats">

@@ -10,6 +10,7 @@ import {
   isDue,
   isScheduled,
   progress,
+  recentRate,
   scheduleLabel,
 } from "./schedule";
 import type { Expectation, Habit } from "./types";
@@ -164,5 +165,47 @@ describe("scheduleLabel", () => {
     expect(scheduleLabel({ kind: "per", times: 3, unit: "week" })).toBe("3× a week");
     expect(scheduleLabel({ kind: "every", n: 2, unit: "week" })).toBe("Every 2 weeks");
     expect(scheduleLabel({ kind: "every", n: 1, unit: "month" })).toBe("Every month");
+  });
+});
+
+describe("recentRate", () => {
+  // the 14 days before TODAY: Wed 7 – Tue 20 October
+  const daysBack = (n: number) => Array.from({ length: n }, (_, i) => {
+    const d = new Date(2026, 9, 20 - i);
+    return `2026-10-${String(d.getDate()).padStart(2, "0")}`;
+  });
+  it("is done over scheduled days for a daily habit, leaving today out", () => {
+    const h = habit({ kind: "daily" });
+    expect(recentRate(done(...daysBack(7)), h, TODAY)).toBeCloseTo(0.5);
+    expect(recentRate(done(...daysBack(14), TODAY), h, TODAY)).toBe(1);
+    expect(recentRate(done(TODAY), h, TODAY)).toBe(0);
+  });
+  it("leaves excused days out", () => {
+    const h = habit({ kind: "daily" });
+    // done the last 7 days, excused the 7 before
+    const idx: DoneIndex = { ...done(...daysBack(7)), excused: new Map([["h", new Set(daysBack(14).slice(7))]]) };
+    expect(recentRate(idx, h, TODAY)).toBe(1);
+  });
+  it("counts only scheduled days for a weekday habit", () => {
+    const mwf = habit({ kind: "weekdays", days: [1, 3, 5] });
+    // Mon 19, Fri 16, Wed 14, Mon 12, Fri 9, Wed 7: all six of them
+    expect(recentRate(done("2026-10-19", "2026-10-16", "2026-10-14", "2026-10-12", "2026-10-09", "2026-10-07"), mwf, TODAY)).toBe(1);
+    expect(recentRate(done("2026-10-19", "2026-10-16", "2026-10-14"), mwf, TODAY)).toBeCloseTo(0.5);
+  });
+  it("compares a period habit with its target, capped at 1", () => {
+    const twice = habit({ kind: "per", times: 2, unit: "week" });
+    expect(recentRate(done("2026-10-19", "2026-10-15"), twice, TODAY)).toBeCloseTo(0.5);
+    expect(recentRate(done(...daysBack(14)), twice, TODAY)).toBe(1);
+  });
+  it("compares an interval habit with the check-ins it called for", () => {
+    const weekly = habit({ kind: "every", n: 1, unit: "week" });
+    expect(recentRate(done("2026-10-13", "2026-10-20"), weekly, TODAY)).toBe(1);
+    expect(recentRate(done("2026-10-20"), weekly, TODAY)).toBeCloseTo(0.5);
+  });
+  it("starts the window when the habit was made, and is neutral with nothing to go by", () => {
+    const fresh = { ...habit({ kind: "daily" }), createdAt: new Date(2026, 9, 19, 9).toISOString() };
+    expect(recentRate(done("2026-10-19", "2026-10-20"), fresh, TODAY)).toBe(1);
+    const brandNew = { ...habit({ kind: "daily" }), createdAt: new Date(2026, 9, 21, 9).toISOString() };
+    expect(recentRate(done(), brandNew, TODAY)).toBe(0.5);
   });
 });

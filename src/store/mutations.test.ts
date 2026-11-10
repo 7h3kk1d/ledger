@@ -12,6 +12,8 @@ import {
   createHabit,
   logEvent,
   moveHabit,
+  pinHabit,
+  unpinHabit,
   renameHabit,
   setHabitArchived,
   setHabitDisplay,
@@ -202,5 +204,18 @@ describe("notes and linked signals", () => {
     setHabitSignals(h, habitId, []);
     expect(doc(h).habits[habitId]!.signals).toBeUndefined();
     expect(doc(h).habits[habitId]!.display).toBeUndefined();
+  });
+});
+
+describe("pins", () => {
+  it("pins a habit at a slot and unpins it", () => {
+    const h = newHandle();
+    const id = createHabit(h, "Read");
+    pinHabit(h, id, 2);
+    expect(doc(h).habits[id]!.pin).toBe(2);
+    pinHabit(h, id, -3); // clamped to the top
+    expect(doc(h).habits[id]!.pin).toBe(0);
+    unpinHabit(h, id);
+    expect("pin" in doc(h).habits[id]!).toBe(false);
   });
 });

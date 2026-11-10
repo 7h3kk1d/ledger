@@ -3,7 +3,7 @@ import type { DoneIndex } from "../../model/reduce";
 import { signalIndex, type Observation, type SignalData, type SignalInfo } from "../../model/signals";
 import type { Expectation, Habit } from "../../model/types";
 import type { Signals } from "../../signals/useSignals";
-import { tileSub, todaySections } from "./Today";
+import { smartOrder, tileSub, todaySections } from "./Today";
 
 const TODAY = "2026-10-21"; // a Wednesday
 const habit = (id: string, expectation: Expectation = { kind: "daily" }, over: Partial<Habit> = {}): Habit =>
@@ -22,9 +22,9 @@ const all = [a, b, tue, c];
 
 describe("todaySections", () => {
   const idx = index({ b: [TODAY] });
-  it("keeps everything due in habit order, done or not, when done isn't hidden", () => {
+  it("keeps everything due, done or not, when done isn't hidden, with done ones last", () => {
     const s = todaySections(all, idx, TODAY, { hideDone: false });
-    expect(ids(s.open)).toEqual(["a", "b", "c"]);
+    expect(ids(s.open)).toEqual(["a", "c", "b"]);
     expect(s.done).toEqual([]);
     expect(ids(s.notDue)).toEqual(["tue"]);
   });
@@ -87,5 +87,34 @@ describe("tileSub", () => {
       eventTypeIds: [], signals: [RING], display: { metrics: [{ signal: RING, metric: "latest" }] },
     });
     expect(tileSub(s, index({}, s.index), h, TODAY)).toBe("44 Cal");
+  });
+});
+
+describe("smartOrder", () => {
+  const YESTERDAY = "2026-10-20";
+  const linked = habit("linked", { kind: "daily" }, { eventTypeIds: ["linked"], signals: [RING] });
+  it("puts habits ticked by hand first, then linked ones, then ones done today", () => {
+    const order = smartOrder([linked, a, b, c], index({ b: [TODAY] }), TODAY);
+    expect(ids(order)).toEqual(["a", "c", "linked", "b"]);
+  });
+  it("puts the habits kept up lately first, and keeps the drag order between equals", () => {
+    expect(ids(smartOrder([a, b, c], index({ c: [YESTERDAY] }), TODAY))).toEqual(["c", "a", "b"]);
+    expect(ids(smartOrder([a, b, c], index({ b: [YESTERDAY], c: [YESTERDAY] }), TODAY))).toEqual(["b", "c", "a"]);
+  });
+  it("leaves a just-ticked habit in its group for a moment", () => {
+    expect(ids(smartOrder([a, b, c], index({ a: [TODAY] }), TODAY, new Set(["a"])))).toEqual(["a", "b", "c"]);
+  });
+  it("holds pinned habits at their slot, at the end when the list is shorter", () => {
+    const top = { ...c, pin: 0 };
+    const far = { ...a, pin: 9 };
+    expect(ids(smartOrder([far, b, top], index({ a: [YESTERDAY] }), TODAY))).toEqual(["c", "b", "a"]);
+    // a pin beats being done today
+    expect(ids(smartOrder([a, b, top], index({ c: [TODAY] }), TODAY))).toEqual(["c", "a", "b"]);
+  });
+  it("counts pins within each section", () => {
+    const pinned = { ...c, pin: 0 };
+    const s = todaySections([a, b, pinned], index({ a: [TODAY] }), TODAY, { hideDone: true });
+    expect(ids(s.open)).toEqual(["c", "b"]);
+    expect(ids(s.done)).toEqual(["a"]);
   });
 });

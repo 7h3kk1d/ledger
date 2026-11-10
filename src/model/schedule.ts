@@ -1,7 +1,7 @@
 // What a habit's expectation means on a given day: whether it's due, how its
 // streak counts, and how to describe it. Weeks run Sunday to Saturday, like
 // the calendar.
-import { doneDates, isDone, isExcused, isUnknown, shiftDate, type DoneIndex } from "./reduce";
+import { dayRange, doneDates, isDone, isExcused, isUnknown, localDate, shiftDate, type DoneIndex } from "./reduce";
 import type { Expectation, Habit, PeriodUnit, TimeUnit } from "./types";
 
 export const DAILY: Expectation = { kind: "daily" };
@@ -151,6 +151,33 @@ function scheduleState(idx: DoneIndex, habit: Habit, date: string): DayState {
 /** Whether the habit belongs in the day's to-do count: due, or done anyway. */
 export const countsOn = (idx: DoneIndex, habit: Habit, date: string) =>
   isDone(idx, habit, date) || isDue(idx, habit, date);
+
+/**
+ * How well the habit kept to its schedule over the `days` before today (today
+ * left out), from 0 to 1. Starts no earlier than the habit was made. Day-by-day
+ * habits: done over scheduled days, leaving out excused days and days without
+ * linked data. Period and interval habits: done days over the check-ins the
+ * window called for, capped at 1. No days to judge by gives a neutral 0.5.
+ */
+export function recentRate(idx: DoneIndex, habit: Habit, today: string, days = 14): number {
+  const made = habit.createdAt ? localDate(new Date(habit.createdAt)) : undefined;
+  const window = dayRange(shiftDate(today, -1), days).filter((d) => !made || d >= made);
+  if (!window.length) return 0.5;
+  const done = window.filter((d) => isDone(idx, habit, d)).length;
+  const e = expectationOf(habit);
+  if (e.kind === "daily" || e.kind === "weekdays") {
+    const expected = window.filter((d) => {
+      if (!isScheduled(habit, d)) return false;
+      const s = dayState(idx, habit, d);
+      return s !== "excused" && s !== "unknown";
+    }).length;
+    return expected ? Math.min(done / expected, 1) : 0.5;
+  }
+  const wanted = e.kind === "per"
+    ? (e.times * window.length) / PERIOD_DAYS[e.unit]
+    : window.length / Math.max(1, daysBetween(today, addUnits(today, e.n, e.unit)));
+  return Math.min(done / wanted, 1);
+}
 
 /** "2/3 this week" for period habits; "due", "next in 3d" or "2d late" for intervals. */
 export function progress(idx: DoneIndex, habit: Habit, today: string): string | undefined {

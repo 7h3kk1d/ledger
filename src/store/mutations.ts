@@ -226,6 +226,23 @@ export function moveHabit(h: DocHandle<LedgerDoc>, habitId: string, to: number):
   });
 }
 
+/** Hold a habit at a slot in the list (0 = top); the rest sort themselves around it. */
+export function pinHabit(h: DocHandle<LedgerDoc>, habitId: string, slot: number): void {
+  const at = Math.max(0, Math.round(slot));
+  h.change((d) => {
+    const habit = d.habits[habitId];
+    if (habit && habit.pin !== at) habit.pin = at;
+  });
+}
+
+/** Let a pinned habit sort itself again. */
+export function unpinHabit(h: DocHandle<LedgerDoc>, habitId: string): void {
+  h.change((d) => {
+    const habit = d.habits[habitId];
+    if (habit && habit.pin !== undefined) delete habit.pin;
+  });
+}
+
 /** Link a habit to signals (ids from the signals service); an empty list unlinks all. */
 export function setHabitSignals(h: DocHandle<LedgerDoc>, habitId: string, signals: string[]): void {
   h.change((d) => {

@@ -172,6 +172,9 @@ button.grip {
   color: var(--muted); cursor: grab; touch-action: none; opacity: .55;
 }
 button.grip:hover, button.grip:focus-visible { opacity: 1; }
+/* held in place by a drag: the pin shows in the habit's colour */
+button.grip.pinned { opacity: .9; color: hsl(var(--h) 55% 45%); }
+@media (prefers-color-scheme: dark) { button.grip.pinned { color: hsl(var(--h) 70% 70%); } }
 .grid.reordering { user-select: none; -webkit-user-select: none; cursor: grabbing; }
 .grid.reordering .grid-row { transition: transform .15s ease; }
 .grid.reordering .grid-row.dragging {

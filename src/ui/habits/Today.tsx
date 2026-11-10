@@ -1,13 +1,47 @@
 import { useLinger, usePress } from "../hooks";
 import type { Habit } from "../../model/types";
 import { displayOf, habitHue, isDone, manualDone, signalsOf, type DoneIndex } from "../../model/reduce";
-import { countsOn, dayState, expectationOf, habitStreak, progress, streakUnit } from "../../model/schedule";
+import { countsOn, dayState, expectationOf, habitStreak, progress, recentRate, streakUnit } from "../../model/schedule";
 import type { Signals } from "../../signals/useSignals";
 import { currentValue, dayProgress, excuseLabel } from "./SignalsUI";
 import { Check, Excused } from "./icons";
 
+const pinOf = (h: Habit): number | undefined =>
+  typeof h.pin === "number" && Number.isFinite(h.pin) && h.pin >= 0 ? Math.floor(h.pin) : undefined;
+
 /**
- * Today's habits in sections, each in the user's habit order:
+ * The list's order, which sorts itself:
+ * 1. habits ticked by hand that aren't done today, then ones linked to data
+ *    (Apple Health and the like, which tick themselves), then ones done today;
+ * 2. within each, the best kept lately (recentRate) first;
+ * 3. then the drag order (`habits` comes in it).
+ * A pinned habit (dragged into place) is then held at its slot, or at the end
+ * if the list is shorter. `keep` holds habits just ticked off in their old
+ * group for a moment, so the tap is seen before they move.
+ */
+export function smartOrder(
+  habits: readonly Habit[],
+  idx: DoneIndex,
+  today: string,
+  keep?: ReadonlySet<string>,
+): Habit[] {
+  const group = (h: Habit) =>
+    isDone(idx, h, today) && !keep?.has(h.id) ? 2 : signalsOf(h).length ? 1 : 0;
+  const free = habits
+    .filter((h) => pinOf(h) === undefined)
+    .map((h, i) => ({ h, i, g: group(h), r: recentRate(idx, h, today) }))
+    .sort((a, b) => a.g - b.g || b.r - a.r || a.i - b.i)
+    .map((x) => x.h);
+  const pinned = habits
+    .map((h, i) => ({ h, i, p: pinOf(h) }))
+    .filter((x): x is { h: Habit; i: number; p: number } => x.p !== undefined)
+    .sort((a, b) => a.p - b.p || a.i - b.i);
+  for (const { h, p } of pinned) free.splice(Math.min(p, free.length), 0, h);
+  return free;
+}
+
+/**
+ * Today's habits in sections, each in smartOrder:
  * - open: what's left to do (with hideDone off, everything due or done today)
  * - done: ticked off today, when hideDone is on
  * - notDue: not expected today (a rest day, an interval still covered, a
@@ -33,7 +67,9 @@ export function todaySections(
     else if (opts.hideDone && isDone(idx, h, today) && !opts.keep?.has(h.id)) s.done.push(h);
     else s.open.push(h);
   }
-  return s;
+  // each section sorts on its own, so a pin's slot counts within the list it was dropped in
+  const sort = (hs: Habit[]) => smartOrder(hs, idx, today, opts.keep);
+  return { open: sort(s.open), done: sort(s.done), notDue: sort(s.notDue) };
 }
 
 /**
@@ -90,7 +126,7 @@ export function TodayTiles(props: {
         () => {
           const was = isDone(idx, h, today);
           props.onToggle(h);
-          if (!was && props.hideDone) linger(h.id);
+          if (!was) linger(h.id);
         },
         () => props.onDetail(h),
       )}
