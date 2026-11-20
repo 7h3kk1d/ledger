@@ -541,3 +541,16 @@ details.more[open] > summary { margin-bottom: .1rem; }
 }
 .habit-log time { flex: none; width: 6.5rem; color: var(--muted); font-size: .82rem; font-variant-numeric: tabular-nums; }
 .habit-log strong { color: var(--habit); font-weight: 600; }
+
+/* Sync & ledgers (ui/Ledgers.tsx) */
+.ledgers { display: flex; flex-direction: column; gap: .7rem; }
+.ledgers h3 { font-size: .95rem; margin: .6rem 0 0; }
+.ledgers .setting { gap: .25rem; }
+.ledgers .previous span { display: flex; align-items: center; gap: .3rem; }
+.inline-form { display: flex; gap: .5rem; align-items: center; }
+.inline-form input { flex: 1; min-width: 0; }
+.hint { font-size: .8rem; color: var(--muted); margin: 0; }
+.doc-id { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: .75rem; }
+.ledger-name { font-size: .7em; font-weight: 500; color: var(--muted); }
+.load-error .row { display: flex; gap: .6rem; flex-wrap: wrap; }
+.load-error.ledgers { margin-top: 12vh; }

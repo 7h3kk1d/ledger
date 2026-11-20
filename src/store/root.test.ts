@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Repo, type AutomergeUrl, type DocHandle } from "@automerge/automerge-repo";
 import { activeHabits, habitHue } from "../model/reduce";
 import { DATA_EPOCH, type RootDoc } from "../model/types";
-import { createLedger, createRoot, habitSeed, previousDocs, rollover, switchTo } from "./root";
+import { createLedger, createNewLedger, createRoot, habitSeed, previousDocs, renameLedger, rollover, switchTo } from "./root";
 import { setHabitArchived, setHabitExpectation, toggleHabit } from "./mutations";
 
 const doc = <T,>(h: DocHandle<T>) => h.doc() as T;
@@ -86,3 +86,19 @@ describe("root doc", () => {
   });
 });
 
+
+describe("naming and new ledgers", () => {
+  it("names a ledger for every device, and clears it", async () => {
+    const { root } = setup();
+    renameLedger(root, "  Mine ");
+    expect(doc(root).name).toBe("Mine");
+    renameLedger(root, "");
+    expect("name" in doc(root)).toBe(false);
+  });
+
+  it("a new ledger is a separate root with an empty ledger", () => {
+    const repo = new Repo({});
+    const root = createNewLedger(repo, "Test");
+    expect(doc(root)).toMatchObject({ epoch: DATA_EPOCH, history: [], name: "Test" });
+  });
+});

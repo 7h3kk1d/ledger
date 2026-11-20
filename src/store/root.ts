@@ -90,3 +90,19 @@ export function previousDocs(root: RootDoc) {
   const seen = new Set([root.current]);
   return [...root.history].reverse().filter((e) => !seen.has(e.url) && seen.add(e.url));
 }
+
+/** Name the ledger for every device; empty clears it. */
+export function renameLedger(root: DocHandle<RootDoc>, name: string): void {
+  const n = name.trim();
+  root.change((d) => {
+    if (n) d.name = n;
+    else delete d.name;
+  });
+}
+
+/** A new, separate ledger (its own root), for when a device starts fresh rather than joining one. */
+export function createNewLedger(repo: Repo, name?: string): DocHandle<RootDoc> {
+  const root = createRoot(repo, createLedger(repo, []));
+  if (name?.trim()) renameLedger(root, name);
+  return root;
+}

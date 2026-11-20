@@ -3,6 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { DocHandle } from "@automerge/automerge-repo";
 import { DATA_EPOCH, type LedgerDoc, type RootDoc } from "./model/types";
 import { previousDocs } from "./store/root";
+import { rememberLedger } from "./store/config";
 import {
   configuredSignalsUrl,
   exportBackup,
@@ -26,6 +27,7 @@ import { Habits } from "./ui/habits/Habits";
 import { Events } from "./ui/events/Events";
 import { Calendar } from "./ui/calendar/Calendar";
 import { Modal } from "./ui/Modal";
+import { LedgersDialog, Welcome } from "./ui/Ledgers";
 import "./style.css";
 
 const TABS = [
@@ -56,6 +58,7 @@ function App() {
     const { root } = ledger;
     const onRoot = () => {
       const r = root.doc() as RootDoc;
+      rememberLedger(root.url, r.name);
       if (r.epoch > DATA_EPOCH) setLoadError(outdated());
       else if (r.current !== ledger.handle.url)
         openCurrent(root).then((handle) => setLedger({ root, handle }), setLoadError);
@@ -71,28 +74,26 @@ function App() {
 
 function LoadErrorScreen({ error }: { error: Error }) {
   const kind = error instanceof LoadError ? error.kind : undefined;
+  const [settings, setSettings] = useState(false);
+  if (kind === "no-ledger") return <Welcome />;
   return (
     <div class="load-error">
       <h2>
         {kind === "outdated"
           ? "Ledger needs an update"
-          : kind === "no-config"
-            ? "Ledger isn’t set up"
-            : "Couldn’t open your data"}
+          : "Couldn’t open your data"}
       </h2>
       <p>{error.message}</p>
-      {kind === "no-config" && (
-        <p>
-          Run <code>pnpm bootstrap &lt;sync url&gt;</code> to create the root doc, then put its url
-          in <code>config.json</code> (see the README).
-        </p>
-      )}
       {kind === "unreachable" && (
         <p>This device has no copy yet, so it needs the sync server once. Check the connection and retry.</p>
       )}
-      <button class="primary" onClick={() => location.reload()}>
-        {kind === "outdated" ? "Reload" : "Retry"}
-      </button>
+      <div class="row">
+        <button class="primary" onClick={() => location.reload()}>
+          {kind === "outdated" ? "Reload" : "Retry"}
+        </button>
+        {kind !== "outdated" && <button onClick={() => setSettings(true)}>Sync &amp; ledgers…</button>}
+      </div>
+      {settings && <LedgersDialog onClose={() => setSettings(false)} />}
     </div>
   );
 }
@@ -100,8 +101,9 @@ function LoadErrorScreen({ error }: { error: Error }) {
 function Shell({ root, handle }: Ledger) {
   const [tab, setTab] = useState<Tab>(tabFromHash);
   const [persisted, setPersisted] = useState(true);
-  const [sync, setSync] = useState<SyncStatus>({ online: false });
-  const [dialog, setDialog] = useState<"reset" | "previous">();
+  const [sync, setSync] = useState<SyncStatus>({ configured: true, online: false });
+  const [dialog, setDialog] = useState<"reset" | "previous" | "ledgers">();
+  const name = useDoc(root).name;
 
   useEffect(() => {
     requestPersistentStorage().then(setPersisted);
@@ -152,7 +154,7 @@ function Shell({ root, handle }: Ledger) {
     <>
       <header class="app-header">
         <div class="app-header-inner">
-          <h1>Ledger</h1>
+          <h1>Ledger{name && <small class="ledger-name"> · {name}</small>}</h1>
           {tabs}
           <span class="grow" />
           <SyncMenu status={sync} />
@@ -164,6 +166,7 @@ function Shell({ root, handle }: Ledger) {
                 Import backup
                 <input type="file" hidden onChange={onImport} />
               </label>
+              <button onClick={() => setDialog("ledgers")}>Sync &amp; ledgers…</button>
               <button onClick={() => setDialog("previous")}>Previous data…</button>
               <button class="danger" onClick={() => setDialog("reset")}>Reset data…</button>
               {!persisted && (
@@ -189,6 +192,7 @@ function Shell({ root, handle }: Ledger) {
         />
       )}
       {dialog === "previous" && <PreviousDialog root={root} onClose={() => setDialog(undefined)} />}
+      {dialog === "ledgers" && <LedgersDialog root={root} onClose={() => setDialog(undefined)} />}
     </>
   );
 }
@@ -198,11 +202,13 @@ function Shell({ root, handle }: Ledger) {
  * server has everything, amber while changes wait for it, grey offline.
  */
 function SyncMenu({ status }: { status: SyncStatus }) {
-  const { online, unsynced, syncedAt } = status;
+  const { configured, online, unsynced, syncedAt } = status;
   const waiting = unsynced === undefined ? online : unsynced > 0;
   const changes = unsynced ? `${unsynced} change${unsynced === 1 ? "" : "s"}` : "Changes";
   const since = syncedAt ? `Last synced ${ago(new Date(syncedAt).toISOString())}.` : "";
-  const [title, detail] = online
+  const [title, detail] = !configured
+    ? ["This device only", "No sync server is set: the ledger is only here. Set one under ⋯ → Sync & ledgers."]
+    : online
     ? waiting
       ? ["Syncing…", `Sending ${changes.toLowerCase()} to the server.`]
       : ["Synced", "Everything on this device is on the server."]

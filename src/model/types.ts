@@ -143,4 +143,6 @@ export interface RootDoc {
   epoch: number;
   /** Docs that used to be current, oldest first. Never deleted. */
   history: RootEntry[];
+  /** What people call this ledger (shown when choosing one); set by renaming it. */
+  name?: string;
 }

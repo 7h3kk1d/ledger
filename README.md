@@ -4,8 +4,10 @@ Personal observability dashboard. This repo currently holds **Track A**: an appe
 
 ## How it fits together
 
-- **Sync server:** the stock [automerge-repo-sync-server](https://github.com/automerge/automerge-repo-sync-server). It is a peer that is always online and stores every doc a client asks for by id. It has no knowledge of Ledger. The app reaches it at `/sync` on its own host.
-- **Root doc:** a tiny doc `{ current, epoch, history }` that names the ledger doc every device uses. The app finds it through `/config.json` (`{ "rootUrl": "automerge:…" }`). A new device only has to open the URL.
+- **Sync server:** the stock [automerge-repo-sync-server](https://github.com/automerge/automerge-repo-sync-server). It is a peer that is always online and stores every doc a client asks for by id. It has no knowledge of Ledger. Optional: without one, the ledger lives on that device only.
+- **Root doc:** a tiny doc `{ current, epoch, history, name? }` that names the ledger doc every device uses. Its url is the ledger's id.
+- **Config** (`src/store/config.ts`, same rules as ClimbLog's kit): `syncUrl`, `rootUrl` and `signalsUrl` come from this device's settings (⋯ → Sync & ledgers), else from `/config.json` served by the app's host (cached for offline starts). A setting of "" turns the served value off. A served config without `syncUrl` means `/sync` on the app's host, as before it was a setting. On the cluster a new device only has to open the URL; with nothing served (the iOS app, a bare `pnpm dev`) the app offers to start a ledger or join one by id.
+- **Several ledgers:** a sync server can't list its docs, so a ledger is joined by its id (⋯ → Sync & ledgers shows it, with a name every device sees). The dialog also lists the ledgers this device has opened, to switch between, and can start a separate one. Within one ledger, resets and imports are under Previous data.
 - **Reset** (⋯ → Reset data…): makes a new, empty ledger doc and points the root at it. You can keep the habit list. Every open device follows the switch live. The old doc is never deleted: ⋯ → Previous data switches back to it.
 - **`DATA_EPOCH`** (`src/model/types.ts`): bump it for a breaking schema change. Each client that loads finds the root at an older epoch and rolls over to a fresh doc (keeping habit names) instead of migrating. A client older than the root's epoch asks to reload.
 - **Linked data (signals):** a habit can also count data from other services, e.g. workouts from

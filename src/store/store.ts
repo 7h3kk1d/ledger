@@ -2,67 +2,57 @@ import { decodeHeads, Repo, type AutomergeUrl, type DocHandle, type UrlHeads } f
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
 import { WebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket";
 import { DATA_EPOCH, type LedgerDoc, type RootDoc } from "../model/types";
-import { habitSeed, rollover, switchTo } from "./root";
+import { createNewLedger, habitSeed, rollover, switchTo } from "./root";
 import { dateHabits, ensureTags, healTags } from "./mutations";
 import { unsynced } from "./sync";
+import { loadConfig, rememberLedger, resolveSyncUrl, setLocalSetting, type AppConfig } from "./config";
 
 export * from "./mutations";
 
-const CONFIG_KEY = "ledger:config";
+/** Docs live on this device; a sync server is added once the config names one (connect). */
+export const repo = new Repo({ storage: new IndexedDBStorageAdapter("ledger") });
 
-/** The sync server sits behind the same host as the app (Vite proxies it in dev). */
-const syncUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/sync`;
-const network = new WebSocketClientAdapter(syncUrl);
+/** Undefined while no sync server is set: the ledger is on this device only. */
+let network: WebSocketClientAdapter | undefined;
 
-export const repo = new Repo({
-  storage: new IndexedDBStorageAdapter("ledger"),
-  network: [network],
-});
+/** The config openLedger read: settings on this device over /config.json. */
+let config: AppConfig = {};
+export const currentConfig = (): AppConfig => config;
+
+function connect(syncUrl: string | undefined) {
+  if (!syncUrl || network) return;
+  network = new WebSocketClientAdapter(resolveSyncUrl(syncUrl));
+  repo.networkSubsystem.addNetworkAdapter(network);
+}
 
 /** Shown instead of the app when it can't open the ledger. */
 export class LoadError extends Error {
   constructor(
-    readonly kind: "no-config" | "unreachable" | "outdated",
+    readonly kind: "no-ledger" | "unreachable" | "outdated",
     message: string,
   ) {
     super(message);
   }
 }
 
-interface Config {
-  rootUrl?: AutomergeUrl;
-  /** The signals service (e.g. "/signals"); without it, habits use manual check-ins only. */
-  signalsUrl?: string;
-}
-
-/** /config.json (served from the cluster's ConfigMap), cached for offline starts. */
-async function loadConfig(): Promise<Config> {
-  try {
-    const res = await fetch("/config.json", { cache: "no-store" });
-    if (res.ok) {
-      const config = (await res.json()) as Config;
-      localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
-      return config;
-    }
-  } catch {
-    // offline: fall back to the cached copy
-  }
-  return JSON.parse(localStorage.getItem(CONFIG_KEY) ?? "{}") as Config;
-}
-
-/** The signals service's url from the last /config.json read (openLedger reads it first). */
+/** The signals service's url (openLedger reads the config first). */
 export function configuredSignalsUrl(): string | undefined {
-  try {
-    const url = (JSON.parse(localStorage.getItem(CONFIG_KEY) ?? "{}") as Config).signalsUrl;
-    return typeof url === "string" && url ? url.replace(/\/$/, "") : undefined;
-  } catch {
-    return undefined;
-  }
+  return config.signalsUrl?.replace(/\/$/, "") || undefined;
 }
 
-/** Docs this device hasn't stored yet have to come from the server. */
-function find<T>(url: AutomergeUrl): Promise<DocHandle<T>> {
-  return repo.find<T>(url, { signal: AbortSignal.timeout(15_000) }).catch((e) => {
+/**
+ * Docs this device hasn't stored yet have to come from the server. The sync server is added after
+ * the repo is made (it comes from the config), so a doc that isn't here is asked for again once
+ * the connection is up; asked before, the repo answers "unavailable" straight away.
+ */
+async function find<T>(url: AutomergeUrl): Promise<DocHandle<T>> {
+  const signal = AbortSignal.timeout(15_000);
+  const net = network;
+  return repo.find<T>(url, { signal }).catch(async (first) => {
+    if (!net || signal.aborted) throw first;
+    await Promise.race([net.whenReady(), new Promise((r) => setTimeout(r, 10_000))]);
+    return repo.find<T>(url, { signal });
+  }).catch((e) => {
     throw new LoadError(
       "unreachable",
       `Couldn’t get ${url} from this device or the sync server (${e?.message ?? e}).`,
@@ -75,11 +65,18 @@ export interface Ledger {
   handle: DocHandle<LedgerDoc>;
 }
 
-/** Open the root doc and the ledger doc it points at, rolling over on an epoch bump. */
+/**
+ * Open the root doc and the ledger doc it points at, rolling over on an epoch bump. Without a
+ * root (a new device with nothing served) it throws "no-ledger": the app offers to start one or
+ * join one.
+ */
 export async function openLedger(): Promise<Ledger> {
-  const { rootUrl } = await loadConfig();
-  if (!rootUrl) throw new LoadError("no-config", "No rootUrl in /config.json.");
+  config = await loadConfig();
+  connect(config.syncUrl);
+  const rootUrl = config.rootUrl as AutomergeUrl | undefined;
+  if (!rootUrl) throw new LoadError("no-ledger", "This device hasn’t opened a ledger yet.");
   const root = await find<RootDoc>(rootUrl);
+  rememberLedger(root.url, (root.doc() as RootDoc).name);
   const r = root.doc() as RootDoc;
   if (r.epoch > DATA_EPOCH) throw outdated();
   if (r.epoch < DATA_EPOCH) {
@@ -117,8 +114,22 @@ export function resetData(root: DocHandle<RootDoc>, current: DocHandle<LedgerDoc
 export const switchToDoc = (root: DocHandle<RootDoc>, url: string) =>
   switchTo(root, url as AutomergeUrl, "switch");
 
+/**
+ * Start a separate ledger on this device and open it (a reload). With a sync server it is
+ * stored there too, so other devices can join it by its id.
+ */
+export async function startNewLedger(name?: string): Promise<void> {
+  const root = createNewLedger(repo, name);
+  rememberLedger(root.url, name?.trim() || undefined);
+  setLocalSetting("rootUrl", root.url);
+  await repo.flush();
+  location.reload();
+}
+
 /** Connected to the sync server or not; calls back now and on every change. */
 export interface SyncStatus {
+  /** False when no sync server is set: the ledger is on this device only. */
+  configured: boolean;
   online: boolean;
   /** Changes on this device the server doesn't have; undefined if unknown. */
   unsynced?: number;
@@ -148,15 +159,20 @@ export function watchSync(handle: DocHandle<LedgerDoc>, cb: (s: SyncStatus) => v
       // storage blocked: the status lasts until reload
     }
   };
-  let online = network.isReady() && network.remotePeerId !== undefined;
+  const net = network;
+  if (!net) {
+    cb({ configured: false, online: false });
+    return () => {};
+  }
+  let online = net.isReady() && net.remotePeerId !== undefined;
   const count = () => {
     const doc = handle.doc();
     return known && doc ? unsynced(doc, decodeHeads(known.heads)) : undefined;
   };
-  const emit = () => cb({ online, unsynced: count(), syncedAt: known?.at });
+  const emit = () => cb({ configured: true, online, unsynced: count(), syncedAt: known?.at });
 
   // already synced before we started watching (the doc was open first)
-  const peer = network.remotePeerId;
+  const peer = net.remotePeerId;
   const storageId = peer && repo.peerMetadataByPeerId[peer]?.storageId;
   const info = storageId ? handle.getSyncInfo(storageId) : undefined;
   if (info) save({ heads: info.lastHeads, at: info.lastSyncTimestamp });
@@ -177,14 +193,14 @@ export function watchSync(handle: DocHandle<LedgerDoc>, cb: (s: SyncStatus) => v
   };
   handle.on("remote-heads", onRemote);
   handle.on("change", emit);
-  network.on("peer-candidate", up);
-  network.on("peer-disconnected", down);
+  net.on("peer-candidate", up);
+  net.on("peer-disconnected", down);
   emit();
   return () => {
     handle.off("remote-heads", onRemote);
     handle.off("change", emit);
-    network.off("peer-candidate", up);
-    network.off("peer-disconnected", down);
+    net.off("peer-candidate", up);
+    net.off("peer-disconnected", down);
   };
 }
 
