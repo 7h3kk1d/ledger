@@ -558,3 +558,10 @@ details.more[open] > summary { margin-bottom: .1rem; }
 .ledger-name { font-size: .7em; font-weight: 500; color: var(--muted); }
 .load-error .row { display: flex; gap: .6rem; flex-wrap: wrap; }
 .load-error.ledgers { margin-top: 12vh; }
+
+/* Touch screens: iOS zooms into any field under 16px when it's focused, and double-taps zoom.
+   Pinch zoom stays in the browser; the iOS app turns it off (ios/App/LedgerViewController.swift). */
+html { touch-action: manipulation; -webkit-text-size-adjust: 100%; }
+@media (pointer: coarse) {
+  input, select, textarea { font-size: max(16px, 1em); }
+}
