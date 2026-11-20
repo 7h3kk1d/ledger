@@ -59,7 +59,16 @@ export const withLegacySync = (served: AppConfig | undefined): AppConfig =>
   served && !("syncUrl" in served) ? { ...served, syncUrl: "/sync" } : (served ?? {});
 
 /** /config.json, or the copy from the last time it could be read; undefined if never served. */
-export async function servedConfig(store = defaultStore(), get: typeof fetch = (u, o) => fetch(u, o)): Promise<AppConfig | undefined> {
+/**
+ * `offlineCopy`: whether a host that can't be reached may be standing in for one that serves a
+ * config. Not in the iOS app, whose config (if any) is part of the app: there a failed fetch
+ * means there is none.
+ */
+export async function servedConfig(
+  store = defaultStore(),
+  get: typeof fetch = (u, o) => fetch(u, o),
+  offlineCopy = true,
+): Promise<AppConfig | undefined> {
   try {
     const res = await get("/config.json", { cache: "no-store" });
     if (res.ok && res.headers.get("content-type")?.includes("json")) {
@@ -72,6 +81,10 @@ export async function servedConfig(store = defaultStore(), get: typeof fetch = (
     return undefined;
   } catch {
     // offline: fall back to the cached copy
+    if (!offlineCopy) {
+      store.removeItem(SERVED);
+      return undefined;
+    }
   }
   const cached = read<AppConfig | null>(store, SERVED, null);
   return cached ?? undefined;
@@ -87,8 +100,8 @@ export function mergeConfig(served: AppConfig | undefined, local: AppConfig): Ap
   };
 }
 
-export async function loadConfig(store = defaultStore()): Promise<AppConfig> {
-  return mergeConfig(await servedConfig(store), localSettings(store));
+export async function loadConfig(opts: { offlineCopy?: boolean } = {}, store = defaultStore()): Promise<AppConfig> {
+  return mergeConfig(await servedConfig(store, undefined, opts.offlineCopy ?? true), localSettings(store));
 }
 
 /**

@@ -106,3 +106,14 @@ describe("served config", () => {
     }
   });
 });
+
+describe("served config in the iOS app", () => {
+  it("a failed fetch means no config, not a cached one", async () => {
+    const store = memory();
+    const json = (async () => new Response(JSON.stringify({ rootUrl: "automerge:dev" }), { headers: { "content-type": "application/json" } })) as typeof fetch;
+    const missing = (async () => { throw new TypeError("Load failed"); }) as typeof fetch;
+    await servedConfig(store, json);
+    expect(await servedConfig(store, missing, false)).toBeUndefined();
+    expect(await servedConfig(store, missing)).toBeUndefined(); // and the old copy is gone
+  });
+});

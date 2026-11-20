@@ -80,7 +80,7 @@ export interface Ledger {
  * join one.
  */
 export async function openLedger(): Promise<Ledger> {
-  config = await loadConfig();
+  config = await loadConfig({ offlineCopy: !storedInFiles });
   connect(config.syncUrl);
   const rootUrl = config.rootUrl as AutomergeUrl | undefined;
   if (!rootUrl) throw new LoadError("no-ledger", "This device hasn’t opened a ledger yet.");
