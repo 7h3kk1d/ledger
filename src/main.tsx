@@ -22,6 +22,7 @@ import {
 } from "./store/store";
 import { useDoc } from "./store/useDoc";
 import { applyWidgetChanges, setWidgetLedger } from "./store/widget";
+import { startHealth } from "./store/health";
 import { startSignals } from "./signals/useSignals";
 import { ago } from "./model/signals";
 import { Habits } from "./ui/habits/Habits";
@@ -124,6 +125,8 @@ function Shell({ root, handle }: Ledger) {
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [root, handle]);
+  // iOS: read what's new in HealthKit and send it on, on launch and on coming back
+  useEffect(() => startHealth(), []);
 
   const go = (t: Tab) => {
     history.replaceState(null, "", `#${t}`);

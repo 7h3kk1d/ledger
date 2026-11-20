@@ -19,6 +19,7 @@ import { renameLedger } from "../store/root";
 import { currentConfig, startNewLedger, storedInFiles } from "../store/store";
 import { useDoc } from "../store/useDoc";
 import { Modal } from "./Modal";
+import { HealthSettings } from "./Health";
 
 const reload = () => location.reload();
 const shortId = (url: string) => url.replace(/^automerge:/, "").slice(0, 8);
@@ -222,6 +223,7 @@ export function LedgersDialog({ root, onClose }: { root?: DocHandle<RootDoc>; on
         <NewLedger />
         <h3>Linked data</h3>
         <UrlSetting name="signalsUrl" label="Signals service" placeholder="https://… or /signals (empty: none)" served={served} />
+        <HealthSettings />
         <h3>This device</h3>
         <p class="hint">
           {storedInFiles
