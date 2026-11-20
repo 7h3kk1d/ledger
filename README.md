@@ -51,6 +51,21 @@ pnpm build
 
 **Seed habits:** the optional, gitignored `src/seed.local.ts` (exporting `SEED_HABITS: string[]`) is read only by `pnpm bootstrap`, which puts the habits into the first doc. After that, resets carry the habit list forward. The seed never reaches a build.
 
+## iOS app (`ios/`)
+
+The same web build in a [Capacitor](https://capacitorjs.com) 8 shell, plus native pieces in Swift. `ios/project.yml` is the source of the Xcode project (xcodegen); Ledger takes no Capacitor dependency, so the web app is unchanged.
+
+- **Storage:** in the app, docs are files the app keeps (`ios/App/FileStore.swift`, in the app group a widget will share), reached through the `LedgerFiles` plugin by `src/store/fileStorage.ts`. WebKit's IndexedDB isn't used for them: inside an app iOS keeps it only on a best-effort basis (`navigator.storage.persist()` isn't granted). An install that has data in IndexedDB copies it into the files once.
+- **Config:** the app ships no `config.json`, so a new install opens on the welcome screen: start a ledger, or set the sync server (e.g. `wss://ledger.home.abanduk.com/sync`) and join one by id.
+- **Building** runs on a Mac over SSH (Xcode, xcodegen); set `IOS_BUILD_HOST`, and for the phone `IOS_TEAM` and `IOS_DEVICE`, in `.env.local`:
+
+```sh
+scripts/ios test      # native unit tests on the simulator
+scripts/ios sim       # build, run in the simulator, screenshot to ios/build/sim.png
+scripts/ios device    # build, sign, install and launch on the phone
+IOS_CONFIG='{ "syncUrl": "wss://…", "rootUrl": "automerge:…" }' scripts/ios sim   # with a test ledger
+```
+
 ## Deploying (homelab)
 
 It runs on the homelab k3s cluster (`homelab/cluster/apps/ledger/`, see its README):

@@ -1,0 +1,77 @@
+# The iOS app: Capacitor's web view running Ledger's own build (dist/, copied to App/public by
+# scripts/ios), plus native pieces in Swift. Generated into Ledger.xcodeproj by xcodegen on the Mac.
+name: Ledger
+options:
+  bundleIdPrefix: me.bandukwala
+  deploymentTarget:
+    iOS: "18.0"
+settings:
+  base:
+    # Capacitor's plugin API predates Swift 6 strict concurrency
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    GENERATE_INFOPLIST_FILE: YES
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ${IOS_TEAM} # scripts/ios passes it from .env.local
+    # simulator builds sign ad hoc, which still embeds the entitlements
+    "CODE_SIGN_IDENTITY[sdk=iphonesimulator*]": "-"
+    "CODE_SIGN_STYLE[sdk=iphonesimulator*]": Manual
+packages:
+  Capacitor:
+    url: https://github.com/ionic-team/capacitor-swift-pm.git
+    exactVersion: 8.6.2
+targets:
+  Ledger:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        excludes: [public]
+      - path: App/public
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: Capacitor
+        product: Capacitor
+      - package: Capacitor
+        product: Cordova
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: me.bandukwala.Ledger
+    attributes:
+      SystemCapabilities: # what -allowProvisioningUpdates turns on for the App ID
+        com.apple.ApplicationGroups.iOS: {enabled: 1}
+    entitlements:
+      path: App/Ledger.entitlements
+      properties:
+        # shared with the widget (later): Ledger's data files live here (FileStore)
+        com.apple.security.application-groups: [group.me.bandukwala.Ledger]
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Ledger
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default Configuration
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).SceneDelegate
+        UISupportedInterfaceOrientations:
+          [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UIViewControllerBasedStatusBarAppearance: true
+  LedgerTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [AppTests]
+    dependencies:
+      - target: Ledger
+schemes:
+  Ledger:
+    build:
+      targets:
+        Ledger: all
+        LedgerTests: [test]
+    test:
+      targets: [LedgerTests]

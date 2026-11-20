@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Build and run Ledger's iOS app (ios/) on a Mac over SSH, from any machine.
+#
+#   scripts/ios web               build the web app and copy it into ios/App/public
+#   scripts/ios test              web, then the native unit tests on the simulator
+#   scripts/ios sim [out.png]     web, build for the simulator, install, launch, screenshot
+#   scripts/ios device            web, build for the phone, install, launch
+#
+# Config (environment or the gitignored .env.local):
+#   IOS_BUILD_HOST   user@host of the Mac (Xcode, xcodegen); required
+#   IOS_TEAM         signing team id, for device builds
+#   IOS_DEVICE       the phone's udid (xcrun devicectl list devices), for device builds
+#   IOS_SIM          simulator name (default iPhone 18 Pro)
+#   IOS_CONFIG       JSON to ship as the app's config.json, e.g. a test ledger; default none,
+#                    so the app opens on its welcome screen like a stranger's would
+# Device builds sign from a keychain of their own (see ios-spike's scripts/mac-signing-keychain.sh):
+# the login keychain is locked over SSH.
+set -euo pipefail
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+[[ -f "$root/.env.local" ]] && source "$root/.env.local"
+: "${IOS_BUILD_HOST:?set IOS_BUILD_HOST (user@host of the Mac), e.g. in .env.local}"
+remote_dir="~/Projects/ledger/ios"
+out_dir="$root/ios/build"
+mkdir -p "$out_dir"
+
+remote() {
+  ssh -o BatchMode=yes -o ConnectTimeout=10 "$IOS_BUILD_HOST" 'zsh -l -s' <<<"set -euo pipefail
+$1"
+}
+
+web() {
+  (cd "$root" && nix develop -c pnpm build >/dev/null)
+  rsync -a --delete "$root/dist/" "$root/ios/App/public/"
+  rm -f "$root/ios/App/public/sw.js" # no service worker in the app: the files are local already
+  if [[ -n "${IOS_CONFIG:-}" ]]; then printf '%s\n' "$IOS_CONFIG" > "$root/ios/App/public/config.json"; fi
+}
+
+sync_ios() {
+  remote "mkdir -p $remote_dir"
+  rsync -az --delete --exclude '*.xcodeproj' --exclude build \
+    "$root/ios/" "$IOS_BUILD_HOST:${remote_dir/#\~\//}/"
+  remote "cd $remote_dir && IOS_TEAM='${IOS_TEAM:-}' xcodegen --quiet"
+}
+
+sim=${IOS_SIM:-iPhone 18 Pro}
+cmd=${1:-}; shift || true
+case "$cmd" in
+  web) web ;;
+  test)
+    web; sync_ios
+    remote "cd $remote_dir && rm -rf build/test.xcresult && xcodebuild test -project Ledger.xcodeproj -scheme Ledger \
+  -destination 'platform=iOS Simulator,name=$sim' -resultBundlePath build/test.xcresult -quiet 2>&1 | grep -E 'error|failed|passed' || true
+xcrun xcresulttool get test-results summary --path build/test.xcresult --compact > build/summary.json
+for k in result passedTests failedTests; do printf '%s=%s ' \$k \"\$(plutil -extract \$k raw -o - build/summary.json)\"; done; echo"
+    ;;
+  sim)
+    out=${1:-"$out_dir/sim.png"}
+    web; sync_ios
+    remote "cd $remote_dir && xcodebuild build -project Ledger.xcodeproj -scheme Ledger \
+  -destination 'platform=iOS Simulator,name=$sim' -derivedDataPath build/dd -quiet
+xcrun simctl boot '$sim' 2>/dev/null || true
+xcrun simctl bootstatus '$sim' -b >/dev/null
+xcrun simctl install '$sim' build/dd/Build/Products/Debug-iphonesimulator/Ledger.app
+xcrun simctl launch --terminate-running-process '$sim' me.bandukwala.Ledger >/dev/null
+sleep ${IOS_SETTLE:-8}
+xcrun simctl io '$sim' screenshot /tmp/ledger-ios.png >/dev/null"
+    scp -q "${IOS_BUILD_HOST}:/tmp/ledger-ios.png" "$out" && echo "$out"
+    ;;
+  device)
+    : "${IOS_TEAM:?set IOS_TEAM}" "${IOS_DEVICE:?set IOS_DEVICE}"
+    web; sync_ios
+    remote "kc=~/Library/Keychains/ios-build.keychain-db
+security unlock-keychain -p \"\$(<~/.ios-build/keychain-pass)\" \$kc
+cd $remote_dir && xcodebuild build -project Ledger.xcodeproj -scheme Ledger \
+  -destination 'id=$IOS_DEVICE' -derivedDataPath build/dd-device -allowProvisioningUpdates \
+  DEVELOPMENT_TEAM=$IOS_TEAM OTHER_CODE_SIGN_FLAGS=\"--keychain \$kc\" -quiet
+xcrun devicectl device install app --device '$IOS_DEVICE' build/dd-device/Build/Products/Debug-iphoneos/Ledger.app >/dev/null
+xcrun devicectl device process launch --terminate-existing --device '$IOS_DEVICE' me.bandukwala.Ledger >/dev/null || echo 'installed; launch it on the phone (locked?)'
+echo 'installed me.bandukwala.Ledger on the phone'"
+    ;;
+  *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

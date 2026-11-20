@@ -6,11 +6,20 @@ import { createNewLedger, habitSeed, rollover, switchTo } from "./root";
 import { dateHabits, ensureTags, healTags } from "./mutations";
 import { unsynced } from "./sync";
 import { loadConfig, rememberLedger, resolveSyncUrl, setLocalSetting, type AppConfig } from "./config";
+import { FileStorageAdapter, MigratingAdapter, nativeFiles } from "./fileStorage";
 
 export * from "./mutations";
 
+/** In the iOS app: files the app keeps (moved there from IndexedDB once). In a browser: IndexedDB. */
+const files = nativeFiles();
+export const storedInFiles = files !== undefined;
+
 /** Docs live on this device; a sync server is added once the config names one (connect). */
-export const repo = new Repo({ storage: new IndexedDBStorageAdapter("ledger") });
+export const repo = new Repo({
+  storage: files
+    ? new MigratingAdapter(new FileStorageAdapter(files), () => new IndexedDBStorageAdapter("ledger"))
+    : new IndexedDBStorageAdapter("ledger"),
+});
 
 /** Undefined while no sync server is set: the ledger is on this device only. */
 let network: WebSocketClientAdapter | undefined;
@@ -209,6 +218,7 @@ export function watchSync(handle: DocHandle<LedgerDoc>, cb: (s: SyncStatus) => v
  * after 7 days without a visit unless the app is installed to the home screen.
  */
 export async function requestPersistentStorage(): Promise<boolean> {
+  if (storedInFiles) return true; // the app's own files, not the browser's storage
   if (!navigator.storage?.persist) return false;
   return (await navigator.storage.persisted()) || navigator.storage.persist();
 }
