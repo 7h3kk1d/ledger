@@ -31,7 +31,9 @@ $1"
 
 web() {
   (cd "$root" && nix develop -c pnpm build >/dev/null)
-  rsync -a --delete "$root/dist/" "$root/ios/App/public/"
+  # never a developer's public/config.json (vite copies it into dist): only IOS_CONFIG's
+  rsync -a --delete --exclude config.json "$root/dist/" "$root/ios/App/public/"
+  rm -f "$root/ios/App/public/config.json" # none unless IOS_CONFIG: an install starts at the welcome screen
   rm -f "$root/ios/App/public/sw.js" # no service worker in the app: the files are local already
   if [[ -n "${IOS_CONFIG:-}" ]]; then printf '%s\n' "$IOS_CONFIG" > "$root/ios/App/public/config.json"; fi
 }

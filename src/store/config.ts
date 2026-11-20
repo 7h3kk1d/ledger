@@ -59,14 +59,17 @@ export const withLegacySync = (served: AppConfig | undefined): AppConfig =>
   served && !("syncUrl" in served) ? { ...served, syncUrl: "/sync" } : (served ?? {});
 
 /** /config.json, or the copy from the last time it could be read; undefined if never served. */
-export async function servedConfig(store = defaultStore()): Promise<AppConfig | undefined> {
+export async function servedConfig(store = defaultStore(), get: typeof fetch = (u, o) => fetch(u, o)): Promise<AppConfig | undefined> {
   try {
-    const res = await fetch("/config.json", { cache: "no-store" });
+    const res = await get("/config.json", { cache: "no-store" });
     if (res.ok && res.headers.get("content-type")?.includes("json")) {
       const config = (await res.json()) as AppConfig;
       write(store, SERVED, config);
       return config;
     }
+    // the host answered but serves no config (the iOS app, a bare dev server): forget any old copy
+    store.removeItem(SERVED);
+    return undefined;
   } catch {
     // offline: fall back to the cached copy
   }

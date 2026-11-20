@@ -15,7 +15,7 @@ import {
   type KnownLedger,
 } from "../store/config";
 import { renameLedger } from "../store/root";
-import { currentConfig, startNewLedger } from "../store/store";
+import { currentConfig, startNewLedger, storedInFiles } from "../store/store";
 import { useDoc } from "../store/useDoc";
 import { Modal } from "./Modal";
 
@@ -210,6 +210,12 @@ export function LedgersDialog({ root, onClose }: { root?: DocHandle<RootDoc>; on
         <NewLedger />
         <h3>Linked data</h3>
         <UrlSetting name="signalsUrl" label="Signals service" placeholder="https://… or /signals (empty: none)" served={served} />
+        <h3>This device</h3>
+        <p class="hint">
+          {storedInFiles
+            ? "Ledgers are kept in this app's own files, which iOS doesn't clear."
+            : "Ledgers are kept in this browser's storage."}
+        </p>
       </div>
     </Modal>
   );

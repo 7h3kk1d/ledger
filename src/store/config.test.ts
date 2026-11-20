@@ -8,6 +8,7 @@ import {
   mergeConfig,
   rememberLedger,
   resolveSyncUrl,
+  servedConfig,
   setLocalSetting,
   type Store,
 } from "./config";
@@ -81,5 +82,27 @@ describe("ledgers on this device", () => {
     expect(isDocUrl(" automerge:2H9qGxsq1VSzRXo4aFsCPXo8TS2a ")).toBe(true);
     expect(isDocUrl("2H9qGxsq1VSzRXo4aFsCPXo8TS2a")).toBe(false);
     expect(isDocUrl("automerge:0OIl")).toBe(false);
+  });
+});
+
+describe("served config", () => {
+  const json = (body: unknown) => (async () => new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } })) as typeof fetch;
+  const notFound = (async () => new Response("", { status: 404 })) as typeof fetch;
+  const html = (async () => new Response("<!doctype html>", { headers: { "content-type": "text/html" } })) as typeof fetch;
+  const offline = (async () => { throw new TypeError("Load failed"); }) as typeof fetch;
+
+  it("keeps a copy for offline starts", async () => {
+    const store = memory();
+    expect(await servedConfig(store, json({ rootUrl: "automerge:abc" }))).toEqual({ rootUrl: "automerge:abc" });
+    expect(await servedConfig(store, offline)).toEqual({ rootUrl: "automerge:abc" });
+  });
+
+  it("forgets the copy once the host answers without one (the iOS app, a bare dev server)", async () => {
+    for (const none of [notFound, html]) {
+      const store = memory();
+      await servedConfig(store, json({ rootUrl: "automerge:abc" }));
+      expect(await servedConfig(store, none)).toBeUndefined();
+      expect(await servedConfig(store, offline)).toBeUndefined();
+    }
   });
 });
