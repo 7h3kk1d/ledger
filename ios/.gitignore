@@ -6,3 +6,5 @@ build/
 # written by xcodegen from project.yml
 App/Info.plist
 App/Ledger.entitlements
+Widget/Info.plist
+Widget/LedgerWidget.entitlements

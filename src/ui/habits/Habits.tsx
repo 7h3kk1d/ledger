@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { ComponentChildren, TargetedPointerEvent } from "preact";
 import type { DocHandle } from "@automerge/automerge-repo";
 import type { Expectation, Habit, HabitDisplay, LedgerDoc, PeriodUnit, Tag, Threshold, TimeUnit } from "../../model/types";
@@ -66,7 +66,8 @@ import { cellValue, currentValue, DayDetail, dayProgress, excuseLabel, LinkedDat
 import { useDoc } from "../../store/useDoc";
 import { useLinger, useMedia, usePref, usePress, useToday } from "../hooks";
 import { Check, Excused, Pin } from "./icons";
-import { LINGER_MS, smartOrder, todaySections, TodayTiles } from "./Today";
+import { LINGER_MS, smartOrder, tileSub, todaySections, TodayTiles } from "./Today";
+import { publishWidget, widgetRows } from "../../store/widget";
 import { ManageHabits, TagField, TagFilter } from "./Tags";
 import { HabitPage } from "./HabitPage";
 
@@ -138,6 +139,10 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
   // always today's order, so paging back through weeks doesn't reshuffle it
   const ordered = smartOrder(habits, idx, today, kept);
   const sections = todaySections(habits, idx, today, { hideDone, keep: kept });
+  // the iOS widget lists all of today's habits (no tag filter), as this view would with nothing hidden
+  useEffect(() => {
+    void publishWidget(widgetRows(allActive, idx, today, (h) => tileSub(signals, idx, h, today)));
+  }, [doc, idx, today, signals]);
   const split = hideDone && page === 0;
   const rows = split ? sections.open : ordered;
   const folded = split ? ordered.filter((h) => !sections.open.includes(h)) : [];

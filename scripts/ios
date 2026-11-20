@@ -3,6 +3,7 @@
 #
 #   scripts/ios web               build the web app and copy it into ios/App/public
 #   scripts/ios test              web, then the native unit tests on the simulator
+#   scripts/ios uitest            web, then the widget end to end on the simulator (IOS_CONFIG, TICK)
 #   scripts/ios sim [out.png]     web, build for the simulator, install, launch, screenshot
 #   scripts/ios device            web, build for the phone, install, launch
 #
@@ -49,12 +50,17 @@ sim=${IOS_SIM:-iPhone 18 Pro}
 cmd=${1:-}; shift || true
 case "$cmd" in
   web) web ;;
-  test)
+  test|uitest)
+    # test: native unit tests; uitest: the widget end to end (set IOS_CONFIG to a test ledger,
+    # TICK to the habit to tap); screenshots land in ios/build/attachments
+    scheme=$([[ $cmd == test ]] && echo Ledger || echo LedgerUI)
     web; sync_ios
-    remote "cd $remote_dir && rm -rf build/test.xcresult && xcodebuild test -project Ledger.xcodeproj -scheme Ledger \
-  -destination 'platform=iOS Simulator,name=$sim' -resultBundlePath build/test.xcresult -quiet 2>&1 | grep -E 'error|failed|passed' || true
+    remote "cd $remote_dir && rm -rf build/test.xcresult build/attachments && TEST_RUNNER_TICK='${TICK:-}' xcodebuild test -project Ledger.xcodeproj -scheme $scheme \
+  -destination 'platform=iOS Simulator,name=$sim' -resultBundlePath build/test.xcresult -quiet 2>&1 | grep -E 'error:|failed|passed' || true
 xcrun xcresulttool get test-results summary --path build/test.xcresult --compact > build/summary.json
+xcrun xcresulttool export attachments --path build/test.xcresult --output-path build/attachments >/dev/null 2>&1 || true
 for k in result passedTests failedTests; do printf '%s=%s ' \$k \"\$(plutil -extract \$k raw -o - build/summary.json)\"; done; echo"
+    rsync -az "${IOS_BUILD_HOST}:${remote_dir/#\~\//}/build/attachments/" "$out_dir/attachments/" 2>/dev/null || true
     ;;
   sim)
     out=${1:-"$out_dir/sim.png"}

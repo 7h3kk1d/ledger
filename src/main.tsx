@@ -21,6 +21,7 @@ import {
   watchSync,
 } from "./store/store";
 import { useDoc } from "./store/useDoc";
+import { applyWidgetChanges, setWidgetLedger } from "./store/widget";
 import { startSignals } from "./signals/useSignals";
 import { ago } from "./model/signals";
 import { Habits } from "./ui/habits/Habits";
@@ -114,6 +115,15 @@ function Shell({ root, handle }: Ledger) {
     };
   }, []);
   useEffect(() => watchSync(handle, setSync), [handle]);
+  // the iOS widget's ticks, made while the app was closed or in the background
+  useEffect(() => {
+    setWidgetLedger(root, handle);
+    const pull = () => void applyWidgetChanges(handle);
+    pull();
+    const onVisible = () => document.visibilityState === "visible" && pull();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [root, handle]);
 
   const go = (t: Tab) => {
     history.replaceState(null, "", `#${t}`);

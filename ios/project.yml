@@ -21,6 +21,9 @@ packages:
   Capacitor:
     url: https://github.com/ionic-team/capacitor-swift-pm.git
     exactVersion: 8.6.2
+  Automerge:
+    url: https://github.com/automerge/automerge-swift
+    exactVersion: 0.7.2
 targets:
   Ledger:
     type: application
@@ -31,21 +34,24 @@ targets:
       - path: App/public
         type: folder
         buildPhase: resources
+      - Shared
     dependencies:
       - package: Capacitor
         product: Capacitor
       - package: Capacitor
         product: Cordova
+      - target: LedgerWidget
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: me.bandukwala.Ledger
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     attributes:
       SystemCapabilities: # what -allowProvisioningUpdates turns on for the App ID
         com.apple.ApplicationGroups.iOS: {enabled: 1}
     entitlements:
       path: App/Ledger.entitlements
       properties:
-        # shared with the widget (later): Ledger's data files live here (FileStore)
+        # shared with the widget: Ledger's data files (FileStore), widget.json, widget-changes/
         com.apple.security.application-groups: [group.me.bandukwala.Ledger]
     info:
       path: App/Info.plist
@@ -61,10 +67,49 @@ targets:
         UISupportedInterfaceOrientations:
           [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UIViewControllerBasedStatusBarAppearance: true
+  LedgerWidget:
+    type: app-extension
+    platform: iOS
+    sources: [Widget, Shared]
+    dependencies:
+      - package: Automerge
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: me.bandukwala.Ledger.widget # must extend the app's id
+    attributes:
+      SystemCapabilities:
+        com.apple.ApplicationGroups.iOS: {enabled: 1}
+    entitlements:
+      path: Widget/LedgerWidget.entitlements
+      properties:
+        com.apple.security.application-groups: [group.me.bandukwala.Ledger]
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleDisplayName: Ledger
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
   LedgerTests:
     type: bundle.unit-test
     platform: iOS
     sources: [AppTests]
+    dependencies:
+      - target: Ledger
+  # the widget's logic, without its UI or a host app, against storage Ledger's JS wrote
+  WidgetTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - WidgetTests
+      - path: Widget
+        excludes: [LedgerWidget.swift, "*.plist", "*.entitlements"]
+      - Shared
+    dependencies:
+      - package: Automerge
+  LedgerUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
     dependencies:
       - target: Ledger
 schemes:
@@ -73,5 +118,13 @@ schemes:
       targets:
         Ledger: all
         LedgerTests: [test]
+        WidgetTests: [test]
     test:
-      targets: [LedgerTests]
+      targets: [LedgerTests, WidgetTests]
+  LedgerUI:
+    build:
+      targets:
+        Ledger: all
+        LedgerUITests: [test]
+    test:
+      targets: [LedgerUITests]
