@@ -117,3 +117,14 @@ describe("served config in the iOS app", () => {
     expect(await servedConfig(store, missing)).toBeUndefined(); // and the old copy is gone
   });
 });
+
+describe("checking urls", () => {
+  it("takes ws(s) urls, paths and empty for the sync server", async () => {
+    const { checkUrl } = await import("./config");
+    for (const ok of ["", "/sync", "wss://ledger.example/sync", "ws://localhost:3030"]) expect(checkUrl("syncUrl", ok)).toBeUndefined();
+    for (const bad of ["was://ledger.example/sync", "ledger.example/sync", "https://ledger.example/sync", "wss://"])
+      expect(checkUrl("syncUrl", bad)).toMatch(/wss:/);
+    expect(checkUrl("signalsUrl", "https://x/signals")).toBeUndefined();
+    expect(checkUrl("signalsUrl", "htps://x")).toMatch(/https:/);
+  });
+});

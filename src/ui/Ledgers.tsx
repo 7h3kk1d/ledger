@@ -5,6 +5,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { DocHandle } from "@automerge/automerge-repo";
 import type { RootDoc } from "../model/types";
 import {
+  checkUrl,
   chooseSetting,
   forgetLedger,
   isDocUrl,
@@ -30,19 +31,27 @@ function useServed() {
 }
 
 /** A url setting with a Save button; saving what the host serves follows the host again. */
+/** Typing urls and ids: no autocorrect ("wss" becomes "was"), no capitals, the url keyboard. */
+// autoCorrect, not autocorrect: Preact would set the boolean property, and "off" is truthy
+const literal = { autocapitalize: "off", autoCorrect: "off", spellcheck: false, inputMode: "url" } as const;
+
 function UrlSetting(props: {
-  name: keyof AppConfig;
+  name: "syncUrl" | "signalsUrl";
   label: string;
   placeholder: string;
   served: AppConfig | undefined;
 }) {
   const [value, setValue] = useState(currentConfig()[props.name] ?? "");
+  const [error, setError] = useState<string>();
   const overridden = localSettings()[props.name] !== undefined;
   return (
     <form
       class="setting"
       onSubmit={(e) => {
         e.preventDefault();
+        const problem = checkUrl(props.name, value);
+        setError(problem);
+        if (problem) return;
         chooseSetting(props.name, value.trim(), props.served);
         reload();
       }}
@@ -50,10 +59,11 @@ function UrlSetting(props: {
       <label>
         {props.label}
         <span class="inline-form">
-          <input value={value} onInput={(e) => setValue(e.currentTarget.value)} placeholder={props.placeholder} />
+          <input {...literal} value={value} onInput={(e) => setValue(e.currentTarget.value)} placeholder={props.placeholder} />
           <button>Save</button>
         </span>
       </label>
+      {error && <small class="error">{error}</small>}
       {overridden && props.served && (
         <small class="hint">This device overrides what the app’s host serves ({props.served[props.name] || "none"}).</small>
       )}
@@ -61,14 +71,16 @@ function UrlSetting(props: {
   );
 }
 
-function SyncServer({ served }: { served: AppConfig | undefined }) {
+function SyncServer({ served, welcome }: { served: AppConfig | undefined; welcome?: boolean }) {
   const syncing = currentConfig().syncUrl;
   return (
     <>
       <p class="hint">
         {syncing
           ? `Syncing through ${syncing}.`
-          : "Not syncing: this ledger is only on this device. Set a sync server (any automerge-repo sync server) to use it on other devices."}
+          : welcome
+            ? "A ledger you use elsewhere is on its sync server: set it here first, then join the ledger by its id."
+            : "Not syncing: this ledger is only on this device. Set a sync server (any automerge-repo sync server) to use it on other devices."}
       </p>
       <UrlSetting name="syncUrl" label="Sync server" placeholder="wss://… or /sync (empty: this device only)" served={served} />
     </>
@@ -90,7 +102,7 @@ function JoinLedger({ served }: { served: AppConfig | undefined }) {
       <label>
         Join a ledger
         <span class="inline-form">
-          <input value={id} onInput={(e) => setId(e.currentTarget.value)} placeholder="automerge:…" aria-label="Ledger id" />
+          <input {...literal} value={id} onInput={(e) => setId(e.currentTarget.value)} placeholder="automerge:…" aria-label="Ledger id" />
           <button disabled={!isDocUrl(id)}>Join</button>
         </span>
       </label>
@@ -231,7 +243,7 @@ export function Welcome() {
       <NewLedger />
       <KnownList served={served} />
       <h3>Join one</h3>
-      <SyncServer served={served} />
+      <SyncServer served={served} welcome />
       <JoinLedger served={served} />
     </div>
   );

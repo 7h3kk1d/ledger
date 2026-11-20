@@ -146,3 +146,15 @@ export function forgetLedger(url: string, store = defaultStore()): void {
 }
 
 export const isDocUrl = (s: string) => /^automerge:[1-9A-HJ-NP-Za-km-z]{20,}$/.test(s.trim());
+
+/**
+ * Why `url` can't be used as `key`, or undefined if it can. "" is fine (turns it off). Catches
+ * what a phone's autocorrect does to "wss://" ("was://") before it becomes a path on the app's host.
+ */
+export function checkUrl(key: "syncUrl" | "signalsUrl", url: string): string | undefined {
+  const u = url.trim();
+  if (!u || /^\/[^\s]*$/.test(u)) return undefined;
+  if (key === "syncUrl")
+    return /^wss?:\/\/[^\s/]+/.test(u) ? undefined : "Use wss://host/path (ws:// for a local server), or a path on this app’s host like /sync.";
+  return /^https?:\/\/[^\s/]+/.test(u) ? undefined : "Use https://host/path, or a path on this app’s host like /signals.";
+}
