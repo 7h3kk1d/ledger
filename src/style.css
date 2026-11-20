@@ -87,6 +87,8 @@ label.check input { width: auto; }
   background: color-mix(in srgb, var(--bg) 85%, transparent);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border);
+  /* under a status bar or notch (the iOS app draws edge to edge; 0 in Safari and the installed PWA) */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
 }
 .app-header-inner { max-width: 52rem; margin: 0 auto; padding: .6rem 1rem; display: flex; align-items: center; gap: 1rem; }
 .app-header h1 { font-size: 1.15rem; margin: 0; letter-spacing: -.01em; }
