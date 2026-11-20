@@ -6,6 +6,16 @@ import WebKit
 class LedgerViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(LedgerFilesPlugin())
+        bridge?.registerPluginInstance(LedgerHealthPlugin())
+        #if DEBUG
+        // simulator tests (UITests/HealthUITests): seed sample data, then read it into the outbox
+        if UserDefaults.standard.bool(forKey: "healthSelfTest") {
+            Task {
+                try? await HealthSync.shared.seed()
+                _ = await HealthSync.shared.sync()
+            }
+        }
+        #endif
         // An app doesn't pinch-zoom its own UI. The web build keeps zoom for the browser (where
         // it's an accessibility feature), so the app caps the viewport itself; WKWebView honours
         // the limit (ignoresViewportScaleLimits is off).

@@ -55,7 +55,7 @@ case "$cmd" in
     # TICK to the habit to tap); screenshots land in ios/build/attachments
     scheme=$([[ $cmd == test ]] && echo Ledger || echo LedgerUI)
     web; sync_ios
-    remote "cd $remote_dir && rm -rf build/test.xcresult build/attachments && TEST_RUNNER_TICK='${TICK:-}' xcodebuild test -project Ledger.xcodeproj -scheme $scheme \
+    remote "cd $remote_dir && rm -rf build/test.xcresult build/attachments && TEST_RUNNER_TICK='${TICK:-}' xcodebuild test -project Ledger.xcodeproj -scheme $scheme ${IOS_XCODEBUILD_ARGS:-} \
   -destination 'platform=iOS Simulator,name=$sim' -resultBundlePath build/test.xcresult -quiet 2>&1 | grep -E 'error:|failed|passed' || true
 xcrun xcresulttool get test-results summary --path build/test.xcresult --compact > build/summary.json
 xcrun xcresulttool export attachments --path build/test.xcresult --output-path build/attachments >/dev/null 2>&1 || true
