@@ -71,23 +71,36 @@ struct LedgerWidgetView: View {
                 Text("Nothing due today.").font(.caption).foregroundStyle(.secondary)
             }
             ForEach(entry.rows.prefix(limit)) { row in
-                Button(intent: ToggleHabitIntent(habitId: row.id)) {
+                // a Toggle, not a Button: the system flips it the moment it's tapped, while the
+                // intent writes the tick (a Button only changes once the widget has redrawn)
+                Toggle(isOn: row.done, intent: ToggleHabitIntent(habitId: row.id)) {
                     HStack(spacing: 6) {
-                        Image(systemName: row.done ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(row.done ? Color(hue: row.hue / 360, saturation: 0.65, brightness: 0.8) : Color.secondary)
                         Text(row.name).font(.subheadline).lineLimit(1)
-                            .foregroundStyle(row.done ? .secondary : .primary)
                         Spacer(minLength: 0)
                         if family != .systemSmall, let sub = row.sub {
                             Text(sub).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }
                 }
-                .buttonStyle(.plain)
+                .toggleStyle(Check(hue: row.hue))
             }
             Spacer(minLength: 0)
         }
         .containerBackground(.fill.tertiary, for: .widget)
+    }
+}
+
+/// A row's tick: a circle in the habit's colour, done or not.
+struct Check: ToggleStyle {
+    let hue: Double
+
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: configuration.isOn ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(configuration.isOn ? Color(hue: hue / 360, saturation: 0.65, brightness: 0.8) : Color.secondary)
+            configuration.label.foregroundStyle(configuration.isOn ? .secondary : .primary)
+        }
+        .contentShape(Rectangle())
     }
 }
 

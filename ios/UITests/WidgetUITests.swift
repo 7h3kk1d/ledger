@@ -51,7 +51,10 @@ final class WidgetUITests: XCTestCase {
         let before = tile(app).value as? String
         XCUIDevice.shared.press(.home)
 
-        let row = springboard.buttons.matching(NSPredicate(format: "label CONTAINS %@", habit)).firstMatch
+        // a Toggle in the widget: a switch (a button in older builds)
+        let row = springboard.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@ AND (elementType == %d OR elementType == %d)",
+                        habit, XCUIElement.ElementType.switch.rawValue, XCUIElement.ElementType.button.rawValue)).firstMatch
         if !row.waitForExistence(timeout: 4) { addWidget() }
         need(row, "widget row for \(habit)", timeout: 15)
         attach("widget before")
