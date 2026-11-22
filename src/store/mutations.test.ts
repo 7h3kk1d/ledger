@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
 import { Repo, type DocHandle } from "@automerge/automerge-repo";
-import { activeHabits, currentEvents, displayOf, doneIndex, excusesOn, habitDoneOn, habitLog, isExcused, notesOn, signalsOf } from "../model/reduce";
+import { activeHabits, currentEvents, displayOf, doneIndex, recipesOf, excusesOn, habitDoneOn, habitLog, isExcused, notesOn, signalsOf } from "../model/reduce";
 import { dayState, habitStreak } from "../model/schedule";
 import type { LedgerDoc } from "../model/types";
 import {
@@ -17,6 +17,7 @@ import {
   renameHabit,
   setHabitArchived,
   setHabitDisplay,
+  setHabitRecipe,
   setHabitSignals,
   toggleHabit,
   tombstoneEvent,
@@ -204,6 +205,17 @@ describe("notes and linked signals", () => {
     setHabitSignals(h, habitId, []);
     expect(doc(h).habits[habitId]!.signals).toBeUndefined();
     expect(doc(h).habits[habitId]!.display).toBeUndefined();
+  });
+
+  it("keeps a device recipe per linked signal, and removes it", () => {
+    const h = newHandle();
+    const habitId = createHabit(h, "PT");
+    const pt = "apple-health/trainerize-workout/me";
+    setHabitSignals(h, habitId, [pt]);
+    setHabitRecipe(h, habitId, pt, { kind: "healthkit.workouts", bundleId: "com.trainerize.Trainerize" });
+    expect([...recipesOf(doc(h).habits[habitId]!)]).toEqual([[pt, { kind: "healthkit.workouts", bundleId: "com.trainerize.Trainerize" }]]);
+    setHabitRecipe(h, habitId, pt, undefined);
+    expect(doc(h).habits[habitId]!.recipes).toBeUndefined();
   });
 });
 

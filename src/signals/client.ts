@@ -8,6 +8,7 @@
 // few minutes while it's visible, in case a change was missed. The service
 // answers "done today?" from a live fetch for sources that have one.
 import { mergeAnswer, type SignalAnswer, type SignalData, type SignalInfo } from "../model/signals";
+import type { SignalProvider, WantedSignal } from "./provider";
 
 const REFRESH_MS = 5 * 60_000;
 const TIMEOUT_MS = 30_000;
@@ -48,7 +49,7 @@ interface Cached {
   lastOk?: number;
 }
 
-export class SignalsClient {
+export class SignalsClient implements SignalProvider {
   private state: SignalsState;
   private cursor?: string;
   private cursorIds: string[] = [];
@@ -142,8 +143,8 @@ export class SignalsClient {
   }
 
   /** The signals habits link to; fetches when a new one appears. */
-  want(ids: string[]): void {
-    const next = [...new Set(ids)].sort();
+  want(links: readonly (string | WantedSignal)[]): void {
+    const next = [...new Set(links.map((l) => (typeof l === "string" ? l : l.id)))].sort();
     if (next.join("\n") === this.wanted.join("\n")) return;
     const added = next.some((id) => !this.wanted.includes(id));
     this.wanted = next;

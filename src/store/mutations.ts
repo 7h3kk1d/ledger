@@ -8,6 +8,7 @@ import {
   type Event,
   type Expectation,
   type Habit,
+  type DeviceRecipe,
   type HabitDisplay,
   type LedgerDoc,
   type MetricRef,
@@ -280,6 +281,21 @@ export function setHabitThresholds(h: DocHandle<LedgerDoc>, habitId: string, thr
   });
 }
 
+
+/** A habit's device recipe for one linked signal (see Habit.recipes); undefined removes it. */
+export function setHabitRecipe(h: DocHandle<LedgerDoc>, habitId: string, signalId: string, recipe: DeviceRecipe | undefined): void {
+  h.change((d) => {
+    const habit = d.habits[habitId];
+    if (!habit) return;
+    if (recipe) {
+      if (!habit.recipes) habit.recipes = {};
+      habit.recipes[signalId] = { ...recipe };
+    } else if (habit.recipes) {
+      delete habit.recipes[signalId];
+      if (Object.keys(habit.recipes).length === 0) delete habit.recipes;
+    }
+  });
+}
 /**
  * Give the doc its tag maps if it predates tags. Run when a doc is opened, so
  * the maps exist (and have synced) before anyone tags anything: two devices

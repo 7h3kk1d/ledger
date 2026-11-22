@@ -1,5 +1,5 @@
 import type { Observation, SignalIndex } from "./signals";
-import type { Event, Habit, HabitDisplay, LedgerDoc, MetricRef, Occurred, Tag, Threshold } from "./types";
+import type { DeviceRecipe, Event, Habit, HabitDisplay, LedgerDoc, MetricRef, Occurred, Tag, Threshold } from "./types";
 
 /** Local YYYY-MM-DD for a Date (midnight-to-midnight day boundary). */
 export function localDate(d: Date): string {
@@ -130,6 +130,44 @@ export function thresholdsOf(habit: Habit): Map<string, Threshold> {
   return out;
 }
 
+
+const RINGS = new Set(["move", "exercise", "stand"]);
+const optStr = (v: unknown) => v === undefined || typeof v === "string";
+
+/** A recipe as written by any version: well-formed, or undefined (an unknown kind is kept by no one). */
+export function validRecipe(r: unknown): DeviceRecipe | undefined {
+  if (!r || typeof r !== "object") return undefined;
+  const x = r as Record<string, unknown>;
+  switch (x.kind) {
+    case "healthkit.workouts":
+      if (!optStr(x.bundleId) || !optStr(x.activity) || !optStr(x.title)) return undefined;
+      return {
+        kind: x.kind,
+        ...(x.bundleId ? { bundleId: x.bundleId as string } : {}),
+        ...(x.activity ? { activity: x.activity as string } : {}),
+        ...(x.title ? { title: x.title as string } : {}),
+      };
+    case "healthkit.sleep":
+      return { kind: x.kind };
+    case "healthkit.ring":
+      return typeof x.ring === "string" && RINGS.has(x.ring) ? { kind: x.kind, ring: x.ring as "move" } : undefined;
+    case "healthkit.sample":
+      return typeof x.type === "string" && x.type ? { kind: x.kind, type: x.type } : undefined;
+  }
+  return undefined;
+}
+
+/** The habit's device recipes by signal: well-formed ones, for linked signals. */
+export function recipesOf(habit: Habit): Map<string, DeviceRecipe> {
+  const out = new Map<string, DeviceRecipe>();
+  const r = habit.recipes;
+  if (!r || typeof r !== "object") return out;
+  for (const id of signalsOf(habit)) {
+    const recipe = validRecipe((r as Record<string, unknown>)[id]);
+    if (recipe) out.set(id, recipe);
+  }
+  return out;
+}
 /**
  * A day's total of a metric over a signal's observations (excuses aside), or
  * undefined when none of them reports it.
