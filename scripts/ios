@@ -21,7 +21,8 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 [[ -f "$root/.env.local" ]] && source "$root/.env.local"
 : "${IOS_BUILD_HOST:?set IOS_BUILD_HOST (user@host of the Mac), e.g. in .env.local}"
-remote_dir="~/Projects/ledger/ios"
+# per checkout (a worktree builds in its own folder on the Mac, not another's)
+remote_dir=${IOS_REMOTE_DIR:-"~/Projects/$(basename "$root")/ios"}
 out_dir="$root/ios/build"
 mkdir -p "$out_dir"
 

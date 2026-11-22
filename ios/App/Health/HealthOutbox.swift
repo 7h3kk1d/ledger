@@ -15,6 +15,22 @@ struct HealthOutbox {
 
     /// Waiting batches, oldest first.
     func pending() -> [URL] {
+        Self.files(in: dir)
+    }
+
+    /// Batches the receiver refused for good (health/rejected/), kept to look at, never re-sent.
+    var rejectedDir: URL { dir.deletingLastPathComponent().appending(path: "rejected", directoryHint: .isDirectory) }
+
+    func rejected() -> [URL] {
+        Self.files(in: rejectedDir)
+    }
+
+    func reject(_ file: URL) throws {
+        try FileManager.default.createDirectory(at: rejectedDir, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: file, to: rejectedDir.appending(path: file.lastPathComponent))
+    }
+
+    private static func files(in dir: URL) -> [URL] {
         ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
             .filter { $0.pathExtension == "json" }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
@@ -24,10 +40,26 @@ struct HealthOutbox {
 enum HealthPush {
     struct Result: Equatable {
         var pushed = 0
+        var rejected = 0
         var error: String?
     }
 
-    /// Send what's waiting, oldest first, stopping at the first failure (it's tried again next sync).
+    /// What a status means for a batch: taken, refused for good (set aside so it can't hold up the
+    /// rest), or not now (stop; everything waits for the next sync, in order).
+    enum Verdict: Equatable { case taken, refused, later }
+
+    static func verdict(_ status: Int) -> Verdict {
+        switch status {
+        case 200 ..< 300: .taken
+        // a bad token, a timeout or too many requests: the same batch may go through later
+        case 401, 408, 429: .later
+        case 400 ..< 500: .refused
+        default: .later // 5xx, no answer
+        }
+    }
+
+    /// Send what's waiting, oldest first. A batch the receiver refuses for good is set aside; any
+    /// other failure stops, and everything left is tried again next sync.
     static func send(_ outbox: HealthOutbox, to url: URL, token: String,
                      post: (URLRequest, Data) async throws -> Int = urlSessionPost) async -> Result {
         var result = Result()
@@ -39,12 +71,18 @@ enum HealthPush {
                 req.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 req.setValue("gzip", forHTTPHeaderField: "Content-Encoding")
                 let status = try await post(req, gzip(try Data(contentsOf: file)))
-                guard (200 ..< 300).contains(status) else {
-                    result.error = "the receiver answered \(status)"
+                switch verdict(status) {
+                case .taken:
+                    try FileManager.default.removeItem(at: file)
+                    result.pushed += 1
+                case .refused:
+                    try outbox.reject(file)
+                    result.rejected += 1
+                    result.error = "the receiver refused a batch (\(status)); it was set aside"
+                case .later:
+                    result.error = status == 401 ? "the receiver doesn’t accept this token (401)" : "the receiver answered \(status)"
                     return result
                 }
-                try FileManager.default.removeItem(at: file)
-                result.pushed += 1
             } catch {
                 result.error = error.localizedDescription
                 return result

@@ -15,9 +15,10 @@ function readLine(s: HealthStatus): string {
 
 function pushLine(s: HealthStatus): string {
   if (!s.pushUrl) return "Not sending anywhere: set a receiver to keep this data off the phone too.";
+  const refused = s.rejected ? ` ${s.rejected} batch${s.rejected === 1 ? " was" : "es were"} refused by the receiver and set aside.` : "";
   if (s.lastPushError) return `Couldn’t send (${s.lastPushError}); ${s.waiting} batch${s.waiting === 1 ? "" : "es"} waiting, tried again on the next read.`;
   if (s.waiting > 0) return `${s.waiting} batch${s.waiting === 1 ? "" : "es"} waiting to send.`;
-  return s.lastPushAt ? `Everything sent (last ${ago(s.lastPushAt)}).` : "Everything sent.";
+  return (s.lastPushAt ? `Everything sent (last ${ago(s.lastPushAt)}).` : "Everything sent.") + refused;
 }
 
 export function HealthSettings() {

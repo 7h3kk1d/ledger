@@ -80,6 +80,28 @@ final class HealthBatchTests: XCTestCase {
         XCTAssertEqual(outbox.pending().map(\.lastPathComponent), Array(names.dropFirst())) // the failed one waits
     }
 
+    // a batch refused for good is set aside, so it can't hold up the ones behind it
+    func testRefusedBatchIsSetAsideAndTheRestGo() async throws {
+        let outbox = HealthOutbox(dir: dir.appending(path: "outbox"))
+        for i in 0 ..< 3 { try outbox.add(batch(), now: Date(timeIntervalSince1970: Double(i))) }
+        let names = outbox.pending().map(\.lastPathComponent)
+        var calls = 0
+        let r = await HealthPush.send(outbox, to: URL(string: "https://example.test/ingest")!, token: "t") { _, _ in
+            calls += 1
+            return calls == 1 ? 422 : 202
+        }
+        XCTAssertEqual(r.pushed, 2)
+        XCTAssertEqual(r.rejected, 1)
+        XCTAssertEqual(outbox.pending(), [])
+        XCTAssertEqual(outbox.rejected().map(\.lastPathComponent), [names[0]])
+    }
+
+    func testWhichStatusesWaitAndWhichAreRefused() {
+        XCTAssertEqual([200, 202, 204].map(HealthPush.verdict), [.taken, .taken, .taken])
+        XCTAssertEqual([400, 413, 422].map(HealthPush.verdict), [.refused, .refused, .refused])
+        XCTAssertEqual([401, 408, 429, 500, 503, 0].map(HealthPush.verdict), [.later, .later, .later, .later, .later, .later])
+    }
+
     func testStateRoundTrips() throws {
         let url = dir.appending(path: "state.json")
         var s = HealthState()

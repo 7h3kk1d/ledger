@@ -1,6 +1,7 @@
 // One HealthKit sync at a time: read what's new into the outbox, then push it if a receiver is set.
 import Foundation
 import HealthKit
+import Network
 import UIKit
 
 actor HealthSync {
@@ -24,6 +25,8 @@ actor HealthSync {
         var lastPushAt: Date?
         var lastPushCount: Int?
         var lastPushError: String?
+        /// Batches the receiver refused for good, set aside in health/rejected/.
+        var rejected: Int
     }
 
     func status() async -> Status {
@@ -36,7 +39,8 @@ actor HealthSync {
         return Status(available: HKHealthStore.isHealthDataAvailable(), asked: asked, lastRead: s.lastRead,
                       lastReadCount: s.lastReadCount, lastReadError: s.lastReadError, waiting: outbox.pending().count,
                       pushUrl: s.pushUrl, hasToken: HealthToken.get() != nil, lastPushAt: s.lastPushAt,
-                      lastPushCount: s.lastPushCount, lastPushError: s.lastPushError)
+                      lastPushCount: s.lastPushCount, lastPushError: s.lastPushError,
+                      rejected: outbox.rejected().count)
     }
 
     func authorize() async throws {
@@ -95,6 +99,31 @@ actor HealthSync {
             try? state.save(stateURL)
         }
         return await status()
+    }
+
+    private var monitor: NWPathMonitor?
+
+    /// While the app runs: when the network comes back, send what waited (reading what is new
+    /// first), rather than leaving it for the next launch.
+    func watchNetwork() {
+        guard monitor == nil else { return }
+        let m = NWPathMonitor()
+        var wasOnline = true
+        m.pathUpdateHandler = { path in
+            let online = path.status == .satisfied
+            defer { wasOnline = online }
+            guard online, !wasOnline else { return }
+            Task { _ = await HealthSync.shared.syncIfConnected() }
+        }
+        m.start(queue: DispatchQueue(label: "me.bandukwala.Ledger.network"))
+        monitor = m
+    }
+
+    /// A sync, if HealthKit was connected (the sheet answered); nothing otherwise.
+    func syncIfConnected() async -> Status? {
+        let s = await status()
+        guard s.available, s.asked else { return nil }
+        return await sync()
     }
 
     private static func model() -> String {

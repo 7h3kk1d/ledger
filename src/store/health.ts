@@ -19,6 +19,8 @@ export interface HealthStatus {
   lastPushAt?: string;
   lastPushCount?: number;
   lastPushError?: string;
+  /** Batches the receiver refused for good, set aside on the phone (not sent again). */
+  rejected?: number;
 }
 
 interface HealthPlugin {

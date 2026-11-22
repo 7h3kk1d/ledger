@@ -7,6 +7,7 @@ class LedgerViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(LedgerFilesPlugin())
         bridge?.registerPluginInstance(LedgerHealthPlugin())
+        Task { await HealthSync.shared.watchNetwork() }
         #if DEBUG
         // simulator tests (UITests/HealthUITests): seed sample data, then read it into the outbox
         if UserDefaults.standard.bool(forKey: "healthSelfTest") {
