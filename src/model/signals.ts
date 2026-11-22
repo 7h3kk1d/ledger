@@ -7,6 +7,7 @@
 // Observations are never written to the Automerge doc; only a habit's links to
 // signals are (Habit.signals), because those are set by hand.
 import { localDate } from "./reduce";
+import type { DeviceRecipe } from "./types";
 
 export type Effect = "satisfies" | "excuses" | "info";
 
@@ -21,6 +22,8 @@ export interface Observation {
   effect: Effect;
   metrics: Record<string, number>;
   detail?: string;
+  /** Only this device has it so far (derived from its own data); the service's copy replaces it. */
+  provisional?: true;
 }
 
 export interface SignalMetric {
@@ -47,6 +50,8 @@ export interface SignalInfo {
   first?: string;
   last?: string;
   live: boolean;
+  /** A recipe a device can apply to its own data for this signal. */
+  device?: DeviceRecipe;
 }
 
 /** What this device holds for one signal. */

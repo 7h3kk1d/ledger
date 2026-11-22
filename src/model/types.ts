@@ -70,7 +70,25 @@ export interface Habit {
    * whenever it says the day is satisfied. Read through `thresholdsOf`.
    */
   thresholds?: Threshold[];
+  /**
+   * How a device holding the raw data itself (the iOS app, with HealthKit) can
+   * answer a linked signal offline and at once, keyed by signal id. Set from the
+   * signal's catalog entry when it's linked; devices that can't apply a kind
+   * ignore it. Read through `recipesOf`.
+   */
+  recipes?: Record<string, DeviceRecipe>;
 }
+
+/**
+ * A device recipe (collectors spec/signals.md, Device recipes): which of the
+ * device's own records make a signal's observations, under the ids the service
+ * gives the same records.
+ */
+export type DeviceRecipe =
+  | { kind: "healthkit.workouts"; bundleId?: string; activity?: string; title?: string }
+  | { kind: "healthkit.sleep" }
+  | { kind: "healthkit.ring"; ring: "move" | "exercise" | "stand" }
+  | { kind: "healthkit.sample"; type: string };
 
 /** A linked signal's day counts when the day's total of a metric is at least, or at most, a value. */
 export interface Threshold extends MetricRef {
