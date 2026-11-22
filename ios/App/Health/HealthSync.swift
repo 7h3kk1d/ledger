@@ -1,5 +1,6 @@
 // One HealthKit sync at a time: read what's new into the outbox, then push it if a receiver is set.
 import Foundation
+import CoreLocation
 import HealthKit
 import Network
 import UIKit
@@ -15,7 +16,10 @@ actor HealthSync {
 
     struct Status: Codable {
         var available: Bool
+        /// Connected: the sheet was answered once (iOS doesn't say what was allowed).
         var asked: Bool
+        /// Kinds added since then wait for the sheet to be answered again.
+        var newKinds: Bool
         var lastRead: Date?
         var lastReadCount: Int?
         var lastReadError: String?
@@ -31,12 +35,14 @@ actor HealthSync {
 
     func status() async -> Status {
         let s = HealthState.load(stateURL)
-        let asked = await withCheckedContinuation { c in
+        let current = await withCheckedContinuation { c in
             store.getRequestStatusForAuthorization(toShare: [], read: HealthTypes.readTypes) { status, _ in
                 c.resume(returning: status == .unnecessary)
             }
         }
-        return Status(available: HKHealthStore.isHealthDataAvailable(), asked: asked, lastRead: s.lastRead,
+        // an install that read before is connected, even if a newer build reads more kinds
+        let asked = current || s.connected == true || s.lastRead != nil
+        return Status(available: HKHealthStore.isHealthDataAvailable(), asked: asked, newKinds: asked && !current, lastRead: s.lastRead,
                       lastReadCount: s.lastReadCount, lastReadError: s.lastReadError, waiting: outbox.pending().count,
                       pushUrl: s.pushUrl, hasToken: HealthToken.get() != nil, lastPushAt: s.lastPushAt,
                       lastPushCount: s.lastPushCount, lastPushError: s.lastPushError,
@@ -45,6 +51,13 @@ actor HealthSync {
 
     func authorize() async throws {
         try await store.requestAuthorization(toShare: [], read: HealthTypes.readTypes)
+        var s = HealthState.load(stateURL)
+        s.connected = true
+        try s.save(stateURL)
+        // medications are shared one by one, on a sheet of their own; without them the rest still syncs
+        if #available(iOS 26.0, *) {
+            try? await store.requestPerObjectReadAuthorization(for: .userAnnotatedMedicationType(), predicate: nil)
+        }
     }
 
     func setPush(url: String?, token: String?) throws {
@@ -83,7 +96,7 @@ actor HealthSync {
                 state = reader.state
                 state.lastRead = Date()
                 state.lastReadCount = n
-                state.lastReadError = nil
+                state.lastReadError = reader.problems.isEmpty ? nil : reader.problems.joined(separator: "; ")
             } catch {
                 state = reader.state
                 state.lastReadError = error.localizedDescription
@@ -139,16 +152,35 @@ actor HealthSync {
         let workout = HKObjectType.workoutType()
         let sleep = HKCategoryType(.sleepAnalysis)
         let mass = HKQuantityType(.bodyMass), steps = HKQuantityType(.stepCount), hr = HKQuantityType(.heartRate)
-        try await store.requestAuthorization(toShare: [workout, sleep, mass, steps, hr], read: HealthTypes.readTypes)
+        let ache = HKCategoryType(.headache), kcal = HKQuantityType(.dietaryEnergyConsumed), protein = HKQuantityType(.dietaryProtein)
+        let route = HKSeriesType.workoutRoute(), mood = HKObjectType.stateOfMindType()
+        try await store.requestAuthorization(toShare: [workout, sleep, mass, steps, hr, ache, kcal, protein, route, mood],
+                                             read: HealthTypes.readTypes)
 
+        // a titled workout, with heart rate during it and a short route
         let config = HKWorkoutConfiguration()
         config.activityType = .functionalStrengthTraining
         let builder = HKWorkoutBuilder(healthStore: store, configuration: config, device: nil)
         let start = now.addingTimeInterval(-3 * 3600)
+        let bpm = HKUnit.count().unitDivided(by: .minute())
         try await builder.beginCollection(at: start)
         try await builder.addMetadata([HKMetadataKeyWorkoutBrandName: "Neck/Shoulder"])
+        let during = (0 ..< 9).map { i in
+            let at = start.addingTimeInterval(Double(i * 5 + 1) * 60)
+            return HKQuantitySample(type: hr, quantity: HKQuantity(unit: bpm, doubleValue: 100 + Double(i) * 5), start: at, end: at)
+        }
+        try await builder.addSamples(during)
         try await builder.endCollection(at: start.addingTimeInterval(45 * 60))
-        _ = try await builder.finishWorkout()
+        if let w = try await builder.finishWorkout() {
+            let points = (0 ..< 5).map { i in
+                CLLocation(coordinate: CLLocationCoordinate2D(latitude: 42.28 + Double(i) * 0.001, longitude: -83.74), altitude: 260,
+                           horizontalAccuracy: 5, verticalAccuracy: 3, course: 0, speed: 1.4,
+                           timestamp: start.addingTimeInterval(Double(i) * 60))
+            }
+            let routeBuilder = HKWorkoutRouteBuilder(healthStore: store, device: nil)
+            try await routeBuilder.insertRouteData(points)
+            _ = try await routeBuilder.finishRoute(with: w, metadata: nil)
+        }
 
         let bed = Calendar.current.startOfDay(for: now).addingTimeInterval(-2 * 3600) // 22:00 yesterday
         let stages: [(HKCategoryValueSleepAnalysis, TimeInterval, TimeInterval)] = [
@@ -160,14 +192,23 @@ actor HealthSync {
                                      start: now.addingTimeInterval(-2 * 3600), end: now.addingTimeInterval(-2 * 3600))
         let walk = HKQuantitySample(type: steps, quantity: HKQuantity(unit: .count(), doubleValue: 1234),
                                     start: now.addingTimeInterval(-90 * 60), end: now.addingTimeInterval(-60 * 60))
-        let bpm = HKUnit.count().unitDivided(by: .minute())
         var beats: [HKQuantitySample] = []
         for i in 0 ..< 6 {
             let at: Date = now.addingTimeInterval(Double(i * 5 - 80) * 60)
             let value: Double = 60 + Double(i) * 10
             beats.append(HKQuantitySample(type: hr, quantity: HKQuantity(unit: bpm, doubleValue: value), start: at, end: at))
         }
-        try await store.save(nights + [weigh, walk] + beats)
+        // a symptom, a meal (a correlation of its dietary samples), and a mood
+        let headache = HKCategorySample(type: ache, value: HKCategoryValueSeverity.mild.rawValue,
+                                        start: now.addingTimeInterval(-50 * 60), end: now.addingTimeInterval(-20 * 60))
+        let mealAt = now.addingTimeInterval(-4 * 3600)
+        let meal = HKCorrelation(type: HKCorrelationType(.food), start: mealAt, end: mealAt, objects: [
+            HKQuantitySample(type: kcal, quantity: HKQuantity(unit: .kilocalorie(), doubleValue: 540), start: mealAt, end: mealAt),
+            HKQuantitySample(type: protein, quantity: HKQuantity(unit: .gram(), doubleValue: 32), start: mealAt, end: mealAt),
+        ], metadata: [HKMetadataKeyFoodType: "Lunch"])
+        let feeling = HKStateOfMind(date: now.addingTimeInterval(-30 * 60), kind: .momentaryEmotion, valence: 0.4,
+                                    labels: [.calm, .content], associations: [.work])
+        try await store.save(nights + [weigh, walk, headache, meal, feeling] + beats)
     }
     #endif
 }

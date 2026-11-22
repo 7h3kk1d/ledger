@@ -10,6 +10,8 @@ struct HealthState: Codable {
     var anchors: [String: Data] = [:]
     var hourlyFrom: [String: Date] = [:]
     var activityFrom: Date?
+    /// The permission sheet was answered (authorize).
+    var connected: Bool?
     var lastRead: Date?
     var lastReadCount: Int?
     var lastReadError: String?
@@ -17,6 +19,9 @@ struct HealthState: Codable {
     var lastPushAt: Date?
     var lastPushCount: Int?
     var lastPushError: String?
+    /// What was last sent of the kinds sent whole when they change.
+    var characteristics: [HealthCharacteristic]?
+    var medications: [HealthMedication]?
 
     static func load(_ url: URL) -> HealthState {
         (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(HealthState.self, from: $0) } ?? HealthState()
@@ -29,12 +34,14 @@ struct HealthState: Codable {
 }
 
 final class HealthReader {
-    private let store: HKHealthStore
-    private(set) var state: HealthState
-    private let newBatch: () -> HealthBatch
-    private let emit: (HealthBatch) throws -> Void
-    private let persist: (HealthState) throws -> Void
-    private let calendar: Calendar
+    let store: HKHealthStore
+    var state: HealthState
+    let newBatch: () -> HealthBatch
+    let emit: (HealthBatch) throws -> Void
+    let persist: (HealthState) throws -> Void
+    let calendar: Calendar
+    /// Kinds that couldn't be read this run (the rest were).
+    var problems: [String] = []
 
     /// How much history the first run reads (the Apple Watch's first year).
     static let historyStart = ISO8601DateFormatter().date(from: "2014-09-01T00:00:00Z")!
@@ -53,9 +60,18 @@ final class HealthReader {
     /// Everything new since the last run; returns how many records it handed over.
     func run(now: Date = Date()) async throws -> Int {
         var n = 0
-        n += try await anchored(key: "workouts", predicate: .workout(), limit: 200) { added, deleted in
+        // "workouts.v2": read again from the start when series, routes and statistics were added
+        n += try await anchored(key: "workouts.v2", predicate: .workout(), limit: 10) { added, deleted in
             var b = self.newBatch()
             b.workouts = added.map(Self.workout)
+            var series: [HealthWorkoutSeries] = [], routes: [HealthWorkoutRoute] = []
+            for w in added {
+                let x = await self.extras(w, now: now)
+                series += x.series
+                routes += x.routes
+            }
+            b.workout_series = series.isEmpty ? nil : series
+            b.workout_routes = routes.isEmpty ? nil : routes
             b.deleted = deleted.isEmpty ? nil : deleted.map { HealthDeleted(kind: "workout", uuid: $0.uuid.uuidString.lowercased()) }
             return b
         }
@@ -67,16 +83,6 @@ final class HealthReader {
                             metadata: s.metadata.map(HealthTypes.metadata))
             }
             b.deleted = deleted.isEmpty ? nil : deleted.map { HealthDeleted(kind: "sleep", uuid: $0.uuid.uuidString.lowercased()) }
-            return b
-        }
-        n += try await anchored(key: "mindfulSession", predicate: .categorySample(type: HKCategoryType(.mindfulSession)), limit: 5000) { added, deleted in
-            var b = self.newBatch()
-            b.samples = added.map { s in
-                HealthSample(uuid: s.uuid.uuidString.lowercased(), type: "mindfulSession", start: HealthTime.string(s.startDate),
-                             end: HealthTime.string(s.endDate), value: s.endDate.timeIntervalSince(s.startDate) / 60, unit: "min",
-                             source: HealthTypes.source(s.sourceRevision, device: s.device), metadata: s.metadata.map(HealthTypes.metadata))
-            }
-            b.deleted = deleted.isEmpty ? nil : deleted.map { HealthDeleted(kind: "sample", uuid: $0.uuid.uuidString.lowercased()) }
             return b
         }
         for t in HealthTypes.sparse {
@@ -94,6 +100,7 @@ final class HealthReader {
         }
         n += try await hourly(now: now)
         n += try await activity(now: now)
+        n += await runMore(now: now)
         return n
     }
 
@@ -114,16 +121,16 @@ final class HealthReader {
             source: HealthTypes.source(w.sourceRevision, device: w.device), metadata: HealthTypes.metadata(w.metadata),
             energy_kcal: w.statistics(for: HKQuantityType(.activeEnergyBurned))?.sumQuantity()?.doubleValue(for: .kilocalorie()),
             distance_m: w.totalDistance?.doubleValue(for: .meter()),
-            heart_rate: range, events: events.isEmpty ? nil : events)
+            heart_rate: range, events: events.isEmpty ? nil : events, stats: stats(w.allStatistics), activities: activities(w))
     }
 
-    private func anchored<T: HKSample>(key: String, predicate: HKSamplePredicate<T>, limit: Int,
-                                       build: @escaping ([T], [HKDeletedObject]) -> HealthBatch) async throws -> Int {
+    func anchored<T: HKSample>(key: String, predicate: HKSamplePredicate<T>, limit: Int,
+                               build: ([T], [HKDeletedObject]) async throws -> HealthBatch) async throws -> Int {
         var total = 0
         while true {
             let anchor = state.anchors[key].flatMap { try? NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: $0) }
             let result = try await HKAnchoredObjectQueryDescriptor(predicates: [predicate], anchor: anchor, limit: limit).result(for: store)
-            let batch = build(result.addedSamples, result.deletedObjects)
+            let batch = try await build(result.addedSamples, result.deletedObjects)
             if !batch.isEmpty {
                 try emit(batch)
                 total += batch.count

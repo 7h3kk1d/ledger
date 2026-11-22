@@ -33,6 +33,19 @@ struct HealthSource: Codable, Equatable {
 struct HealthWorkout: Codable, Equatable {
     struct Range: Codable, Equatable { let min, avg, max: Double }
     struct Event: Codable, Equatable { let type, start, end: String }
+    /// One of HealthKit's statistics for the workout or an activity in it, by type name.
+    struct Stat: Codable, Equatable { let unit: String; var sum, min, avg, max: Double? }
+    /// A part of a multisport workout (swim, bike, run), with its own statistics.
+    struct Activity: Codable, Equatable {
+        let uuid, start: String
+        var end: String?
+        let duration_s: Double
+        let activity_type: UInt
+        let activity: String
+        let metadata: [String: JSONValue]
+        var stats: [String: Stat]?
+        var events: [Event]?
+    }
     let uuid, start, end: String
     let duration_s: Double
     let activity_type: UInt
@@ -43,6 +56,8 @@ struct HealthWorkout: Codable, Equatable {
     var distance_m: Double?
     var heart_rate: Range?
     var events: [Event]?
+    var stats: [String: Stat]?
+    var activities: [Activity]?
 }
 
 struct HealthSleep: Codable, Equatable {
@@ -69,8 +84,115 @@ struct HealthActivityDay: Codable, Equatable {
     var move_kcal, move_goal_kcal, exercise_min, exercise_goal_min, stand_h, stand_goal_h: Double?
 }
 
+/// A category sample (handwashing, a symptom, a high heart rate notification, …): HealthKit's raw
+/// value (HKCategoryValue…), and the interval.
+struct HealthCategory: Codable, Equatable {
+    let uuid, type, start, end: String
+    let value: Int
+    let source: HealthSource
+    var metadata: [String: JSONValue]?
+}
+
+/// Samples HealthKit groups: a meal ("food", its dietary samples) or a blood pressure reading.
+struct HealthCorrelation: Codable, Equatable {
+    let uuid, type, start, end: String
+    let members: [String] // the samples' uuids
+    let source: HealthSource
+    var metadata: [String: JSONValue]?
+}
+
+/// What doesn't change over time: date of birth, biological sex, blood type, …
+struct HealthCharacteristic: Codable, Equatable {
+    let type, value: String
+}
+
+/// Per-minute statistics of one type during a workout (and heartRateRecovery: the minutes after it).
+struct HealthWorkoutSeries: Codable, Equatable {
+    let workout, type, minute, unit: String
+    var sum, min, avg, max: Double?
+}
+
+struct HealthRoutePoint: Codable, Equatable {
+    let at: String
+    let lat, lon: Double
+    var alt, speed, course, h_acc, v_acc: Double?
+}
+
+struct HealthWorkoutRoute: Codable, Equatable {
+    let workout, uuid: String
+    let points: [HealthRoutePoint]
+}
+
+struct HealthECG: Codable, Equatable {
+    let uuid, start, end, classification, symptoms: String
+    var average_hr: Double?
+    var sampling_hz: Double?
+    let count: Int
+    let source: HealthSource
+    var metadata: [String: JSONValue]?
+    /// Lead I, µV, one per 1/sampling_hz seconds.
+    var voltages_uv: [Double]?
+}
+
+struct HealthAudiogram: Codable, Equatable {
+    struct Point: Codable, Equatable {
+        let hz: Double
+        var left_db, right_db: Double?
+    }
+    let uuid, start, end: String
+    let points: [Point]
+    let source: HealthSource
+    var metadata: [String: JSONValue]?
+}
+
+/// Beat-to-beat times behind an HRV reading: seconds since start; gap: beats were missed before it.
+struct HealthHeartbeats: Codable, Equatable {
+    struct Beat: Codable, Equatable { let t: Double; var gap: Bool? }
+    let uuid, start, end: String
+    let beats: [Beat]
+    let source: HealthSource
+}
+
+struct HealthStateOfMind: Codable, Equatable {
+    let uuid, start, end, kind: String
+    let valence: Double
+    let classification: String
+    let labels, associations: [String]
+    let source: HealthSource
+    var metadata: [String: JSONValue]?
+}
+
+/// GAD-7 or PHQ-9.
+struct HealthAssessment: Codable, Equatable {
+    let uuid, type, start, end: String
+    let score: Int
+    let risk: String
+    let answers: [Int]
+    let source: HealthSource
+}
+
+/// A medication in the Health app's list (iOS 26), shared one by one.
+struct HealthMedication: Codable, Equatable {
+    struct Coding: Codable, Equatable { let system, code: String; var version: String? }
+    let id, name, form: String
+    var nickname: String?
+    let archived, scheduled: Bool
+    let codings: [Coding]
+}
+
+/// A dose taken, skipped, … (iOS 26).
+struct HealthDose: Codable, Equatable {
+    let uuid, start, end, medication, status, unit: String
+    var scheduled_at: String?
+    var dose, scheduled_dose: Double?
+    var as_needed: Bool?
+    let source: HealthSource
+}
+
 struct HealthDeleted: Codable, Equatable {
-    let kind: String // workout | sleep | sample
+    /// workout | sleep | sample | category | correlation | ecg | audiogram | heartbeats |
+    /// state_of_mind | assessment | dose
+    let kind: String
     let uuid: String
 }
 
@@ -90,17 +212,30 @@ struct HealthBatch: Codable, Equatable {
     var samples: [HealthSample]?
     var hourly: [HealthHourly]?
     var activity: [HealthActivityDay]?
+    var categories: [HealthCategory]?
+    var correlations: [HealthCorrelation]?
+    var characteristics: [HealthCharacteristic]?
+    var workout_series: [HealthWorkoutSeries]?
+    var workout_routes: [HealthWorkoutRoute]?
+    var ecg: [HealthECG]?
+    var audiograms: [HealthAudiogram]?
+    var heartbeats: [HealthHeartbeats]?
+    var state_of_mind: [HealthStateOfMind]?
+    var assessments: [HealthAssessment]?
+    var medications: [HealthMedication]?
+    var doses: [HealthDose]?
     var deleted: [HealthDeleted]?
 
-    var isEmpty: Bool {
-        [workouts?.count, sleep?.count, samples?.count, hourly?.count, activity?.count, deleted?.count]
-            .allSatisfy { ($0 ?? 0) == 0 }
+    private var counts: [Int?] {
+        [workouts?.count, sleep?.count, samples?.count, hourly?.count, activity?.count, categories?.count,
+         correlations?.count, characteristics?.count, workout_series?.count, workout_routes?.count, ecg?.count,
+         audiograms?.count, heartbeats?.count, state_of_mind?.count, assessments?.count, medications?.count,
+         doses?.count, deleted?.count]
     }
 
-    var count: Int {
-        [workouts?.count, sleep?.count, samples?.count, hourly?.count, activity?.count, deleted?.count]
-            .reduce(0) { $0 + ($1 ?? 0) }
-    }
+    var isEmpty: Bool { counts.allSatisfy { ($0 ?? 0) == 0 } }
+
+    var count: Int { counts.reduce(0) { $0 + ($1 ?? 0) } }
 
     func encoded() throws -> Data {
         let e = JSONEncoder()

@@ -1,51 +1,67 @@
 // What the app reads from HealthKit, in one place (spec/healthkit-batch.md lists the same).
+// The quantity and category types come from HealthCatalog (every type in the SDK).
 import HealthKit
 
 enum HealthTypes {
+    typealias Typed = (id: HKQuantityTypeIdentifier, name: String, unit: HKUnit, label: String)
+
+    /// A catalog type this iOS knows, with its unit.
+    private static func known(_ q: HealthCatalog.Quantity) -> Typed? {
+        guard HKQuantityType.quantityType(forIdentifier: q.id) != nil else { return nil }
+        return (q.id, q.name, HKUnit(from: q.unit), q.unit)
+    }
+
     /// Sparse measurements: every sample.
-    static let sparse: [(id: HKQuantityTypeIdentifier, name: String, unit: HKUnit, label: String)] = [
-        (.bodyMass, "bodyMass", .gramUnit(with: .kilo), "kg"),
-        (.bodyFatPercentage, "bodyFatPercentage", .percent(), "%"),
-        (.leanBodyMass, "leanBodyMass", .gramUnit(with: .kilo), "kg"),
-        (.bodyMassIndex, "bodyMassIndex", .count(), "count"),
-        (.height, "height", .meter(), "m"),
-        (.restingHeartRate, "restingHeartRate", .count().unitDivided(by: .minute()), "count/min"),
-        (.walkingHeartRateAverage, "walkingHeartRateAverage", .count().unitDivided(by: .minute()), "count/min"),
-        (.respiratoryRate, "respiratoryRate", .count().unitDivided(by: .minute()), "count/min"),
-        (.heartRateVariabilitySDNN, "heartRateVariabilitySDNN", .secondUnit(with: .milli), "ms"),
-        (.vo2Max, "vo2Max", HKUnit(from: "ml/kg*min"), "ml/kg·min"),
-        (.oxygenSaturation, "oxygenSaturation", .percent(), "%"),
-        (.bodyTemperature, "bodyTemperature", .degreeCelsius(), "degC"),
-        (.appleSleepingWristTemperature, "appleSleepingWristTemperature", .degreeCelsius(), "degC"),
-        (.bloodPressureSystolic, "bloodPressureSystolic", .millimeterOfMercury(), "mmHg"),
-        (.bloodPressureDiastolic, "bloodPressureDiastolic", .millimeterOfMercury(), "mmHg"),
-        (.dietaryWater, "dietaryWater", .literUnit(with: .milli), "mL"),
-    ]
+    static let sparse: [Typed] = HealthCatalog.quantities.filter { $0.policy == .samples }.compactMap(known)
 
     enum Stat { case sum, range }
 
     /// Dense measurements: hourly statistics, merged across devices.
-    static let hourly: [(id: HKQuantityTypeIdentifier, name: String, unit: HKUnit, label: String, stat: Stat)] = [
-        (.stepCount, "stepCount", .count(), "count", .sum),
-        (.distanceWalkingRunning, "distanceWalkingRunning", .meter(), "m", .sum),
-        (.distanceCycling, "distanceCycling", .meter(), "m", .sum),
-        (.activeEnergyBurned, "activeEnergyBurned", .kilocalorie(), "kcal", .sum),
-        (.basalEnergyBurned, "basalEnergyBurned", .kilocalorie(), "kcal", .sum),
-        (.flightsClimbed, "flightsClimbed", .count(), "count", .sum),
-        (.appleExerciseTime, "appleExerciseTime", .minute(), "min", .sum),
-        (.appleStandTime, "appleStandTime", .minute(), "min", .sum),
-        (.heartRate, "heartRate", .count().unitDivided(by: .minute()), "count/min", .range),
+    static let hourly: [(id: HKQuantityTypeIdentifier, name: String, unit: HKUnit, label: String, stat: Stat)] =
+        HealthCatalog.quantities.filter { $0.policy != .samples }.compactMap { q in
+            known(q).map { ($0.id, $0.name, $0.unit, $0.label, q.policy == .hourlySum ? Stat.sum : .range) }
+        }
+
+    /// Category types this iOS knows.
+    static let categories: [(id: HKCategoryTypeIdentifier, name: String)] =
+        HealthCatalog.categories.compactMap { c in HKCategoryType.categoryType(forIdentifier: c.id).map { _ in (c.id, c.name) } }
+
+    /// Any catalog quantity type this iOS knows, by name.
+    static let byName: [String: Typed] = Dictionary(uniqueKeysWithValues: byType.values.map { ($0.name, $0) })
+
+    /// Any catalog quantity type by HealthKit type: its name and unit (workout statistics).
+    static let byType: [HKQuantityType: Typed] = {
+        var out: [HKQuantityType: Typed] = [:]
+        for q in HealthCatalog.quantities {
+            if let t = known(q) { out[HKQuantityType(t.id)] = t }
+        }
+        return out
+    }()
+
+    static let characteristics: [(id: HKCharacteristicTypeIdentifier, name: String)] = [
+        (.biologicalSex, "biologicalSex"), (.bloodType, "bloodType"), (.dateOfBirth, "dateOfBirth"),
+        (.fitzpatrickSkinType, "fitzpatrickSkinType"), (.wheelchairUse, "wheelchairUse"), (.activityMoveMode, "activityMoveMode"),
     ]
 
     static var readTypes: Set<HKObjectType> {
         var types: Set<HKObjectType> = [
             .workoutType(),
             HKCategoryType(.sleepAnalysis),
-            HKCategoryType(.mindfulSession),
             .activitySummaryType(),
+            HKSeriesType.workoutRoute(),
+            HKSeriesType.heartbeat(),
+            .electrocardiogramType(),
+            .audiogramSampleType(),
+            .stateOfMindType(),
         ]
         for t in sparse { types.insert(HKQuantityType(t.id)) }
         for t in hourly { types.insert(HKQuantityType(t.id)) }
+        for c in categories { types.insert(HKCategoryType(c.id)) }
+        for c in characteristics { types.insert(HKCharacteristicType(c.id)) }
+        for a in [HKScoredAssessmentTypeIdentifier.GAD7, .PHQ9] {
+            types.insert(HKScoredAssessmentType(a))
+        }
+        // not medication doses: asking for them here raises; the per-medication sheet (authorize) covers them
         return types
     }
 
@@ -62,29 +78,7 @@ enum HealthTypes {
     }
 
     static func activityName(_ type: HKWorkoutActivityType) -> String {
-        switch type {
-        case .functionalStrengthTraining: "functionalStrengthTraining"
-        case .traditionalStrengthTraining: "traditionalStrengthTraining"
-        case .crossTraining: "crossTraining"
-        case .running: "running"
-        case .walking: "walking"
-        case .hiking: "hiking"
-        case .cycling: "cycling"
-        case .swimming: "swimming"
-        case .climbing: "climbing"
-        case .yoga: "yoga"
-        case .pilates: "pilates"
-        case .highIntensityIntervalTraining: "highIntensityIntervalTraining"
-        case .coreTraining: "coreTraining"
-        case .flexibility: "flexibility"
-        case .mixedCardio: "mixedCardio"
-        case .elliptical: "elliptical"
-        case .rowing: "rowing"
-        case .stairClimbing: "stairClimbing"
-        case .cooldown: "cooldown"
-        case .other: "other"
-        default: "activity\(type.rawValue)"
-        }
+        HealthCatalog.activities[type.rawValue] ?? "activity\(type.rawValue)"
     }
 
     static func eventName(_ type: HKWorkoutEventType) -> String {

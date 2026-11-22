@@ -65,7 +65,7 @@ export function HealthSettings() {
       {!status.asked ? (
         <>
           <p class="hint">
-            Read workouts (with their titles), sleep, activity rings and measurements from Apple Health. Choose “All
+            Read everything Apple Health shares: workouts (with their routes and titles), sleep, rings, measurements, symptoms, mood, ECGs and more. Choose “All
             Recorded Data” when asked, so the history comes too.
           </p>
           <button class="primary" disabled={busy} onClick={() => void run(() => plugin.authorize())}>
@@ -78,6 +78,12 @@ export function HealthSettings() {
             <p class="hint" aria-live="polite">{busy ? "Reading…" : readLine(status)}</p>
             <button disabled={busy} onClick={() => void run(() => syncHealth(true))}>Read now</button>
           </div>
+          {status.newKinds && (
+            <div class="inline-form">
+              <p class="hint">This version can read more kinds of Health data. Allow them to send those too.</p>
+              <button disabled={busy} onClick={() => void run(() => plugin.authorize())}>Allow more</button>
+            </div>
+          )}
           <form
             class="setting"
             onSubmit={(e) => {

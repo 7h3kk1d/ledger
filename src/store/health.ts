@@ -12,6 +12,8 @@ export interface HealthStatus {
   available: boolean;
   /** The permission sheet has been answered (iOS doesn't say what was allowed). */
   asked: boolean;
+  /** This build reads kinds the sheet hasn't been asked about yet (the rest still sync). */
+  newKinds?: boolean;
   lastRead?: string;
   lastReadCount?: number;
   lastReadError?: string;
