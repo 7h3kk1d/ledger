@@ -14,6 +14,12 @@ class LedgerViewController: CAPBridgeViewController {
             Task {
                 try? await HealthSync.shared.seed()
                 _ = await HealthSync.shared.sync()
+                // what the on-device signals read (LedgerHealth.recent), for scripts to check
+                // against the TS rules (src/signals/device/healthkit.ts)
+                if let recent = try? await HealthRecent.read(store: HealthSync.shared.store, days: 14),
+                   let json = try? JSONEncoder().encode(recent) {
+                    try? json.write(to: HealthSync.shared.dir.appending(path: "recent.json"))
+                }
             }
         }
         #endif
