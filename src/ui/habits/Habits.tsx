@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { ComponentChildren, TargetedPointerEvent } from "preact";
 import type { DocHandle } from "@automerge/automerge-repo";
-import type { Expectation, Habit, HabitDisplay, LedgerDoc, PeriodUnit, Tag, Threshold, TimeUnit } from "../../model/types";
+import type { DeviceRecipe, Expectation, Habit, HabitDisplay, LedgerDoc, PeriodUnit, Tag, Threshold, TimeUnit } from "../../model/types";
 import {
   activeHabits,
   allTags,
@@ -20,6 +20,7 @@ import {
   signalsOf,
   tagsOf,
   thresholdsOf,
+  recipesOf,
   withTag,
 } from "../../model/reduce";
 import { ago } from "../../model/signals";
@@ -56,6 +57,7 @@ import {
   setHabitHue,
   setHabitSignals,
   setHabitThresholds,
+  setHabitRecipes,
   pinHabit,
   toggleHabit,
   tombstoneEvent,
@@ -408,7 +410,7 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
           tags={tags}
           tagIds={tagsOf(doc, editing.id).map((t) => t.id)}
           onClose={() => setEditingId(null)}
-          onSave={(name, hue, expectation, linked, display, thresholds, tagged) => {
+          onSave={(name, hue, expectation, linked, display, thresholds, tagged, recipes) => {
             if (name !== editing.name) renameHabit(handle, editing.id, name);
             if (hue !== habitHue(editing)) setHabitHue(handle, editing.id, hue);
             if (JSON.stringify(expectation) !== JSON.stringify(editing.expectation))
@@ -419,6 +421,8 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
               setHabitDisplay(handle, editing.id, display);
             if (JSON.stringify(thresholds) !== JSON.stringify([...thresholdsOf(editing).values()]))
               setHabitThresholds(handle, editing.id, thresholds);
+            if (JSON.stringify(recipes) !== JSON.stringify(Object.fromEntries(recipesOf(editing))))
+              setHabitRecipes(handle, editing.id, recipes);
             saveTags(editing.id, tagged);
             setEditingId(null);
           }}
@@ -582,6 +586,7 @@ function EditHabit(props: {
   onSave: (
     name: string, hue: number, expectation: Expectation, signals: string[], display: HabitDisplay,
     thresholds: Threshold[], tags: { ids: string[]; added: string[] },
+    recipes: Record<string, DeviceRecipe>,
   ) => void;
   onArchive: () => void;
 }) {
@@ -591,13 +596,14 @@ function EditHabit(props: {
   const [linked, setLinked] = useState(signalsOf(props.habit));
   const [display, setDisplay] = useState<HabitDisplay>(displayOf(props.habit));
   const [thresholds, setThresholds] = useState<Threshold[]>([...thresholdsOf(props.habit).values()]);
+  const [recipes, setRecipes] = useState<Record<string, DeviceRecipe>>(Object.fromEntries(recipesOf(props.habit)));
   const [tagged, setTagged] = useState({ ids: props.tagIds, added: [] as string[] });
   return (
     <Modal title="Edit habit" onClose={props.onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (name.trim()) props.onSave(name.trim(), hue, expectation, linked, display, thresholds, tagged);
+          if (name.trim()) props.onSave(name.trim(), hue, expectation, linked, display, thresholds, tagged, recipes);
         }}
       >
         <label>Name
@@ -614,6 +620,8 @@ function EditHabit(props: {
             value={linked}
             display={display}
             thresholds={thresholds}
+            recipes={recipes}
+            onRecipes={setRecipes}
             onChange={(ids, d, ts) => {
               setLinked(ids);
               setDisplay(d);

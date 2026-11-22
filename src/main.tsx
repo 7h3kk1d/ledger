@@ -22,7 +22,7 @@ import {
 } from "./store/store";
 import { useDoc } from "./store/useDoc";
 import { applyWidgetChanges, setWidgetLedger } from "./store/widget";
-import { startHealth } from "./store/health";
+import { healthSignals, startHealth } from "./store/health";
 import { startSignals } from "./signals/useSignals";
 import { ago } from "./model/signals";
 import { Habits } from "./ui/habits/Habits";
@@ -49,7 +49,7 @@ function App() {
   useEffect(() => {
     openLedger().then((l) => {
       // after openLedger: it reads /config.json, which names the signals service
-      startSignals(configuredSignalsUrl());
+      startSignals(configuredSignalsUrl(), healthSignals());
       setLedger(l);
     }, setLoadError);
   }, []);

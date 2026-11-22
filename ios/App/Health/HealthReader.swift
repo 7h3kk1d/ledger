@@ -197,7 +197,7 @@ final class HealthReader {
         var from = state.activityFrom ?? Self.historyStart
         while from < now {
             let to = min(from.addingTimeInterval(180 * 86400), now)
-            let rows = try await summaries(from: from, to: to).compactMap(day)
+            let rows = try await summaries(from: from, to: to).compactMap { Self.activityDay($0, calendar: calendar) }
             if !rows.isEmpty {
                 var b = newBatch()
                 b.activity = rows
@@ -213,7 +213,7 @@ final class HealthReader {
         return total
     }
 
-    private func day(_ s: HKActivitySummary) -> HealthActivityDay? {
+    static func activityDay(_ s: HKActivitySummary, calendar: Calendar) -> HealthActivityDay? {
         let c = s.dateComponents(for: calendar)
         guard let y = c.year, let m = c.month, let d = c.day else { return nil }
         let kcal = HKUnit.kilocalorie(), min = HKUnit.minute(), count = HKUnit.count()
@@ -227,7 +227,11 @@ final class HealthReader {
         return row
     }
 
-    private func summaries(from: Date, to: Date) async throws -> [HKActivitySummary] {
+    func summaries(from: Date, to: Date) async throws -> [HKActivitySummary] {
+        try await Self.summaries(store: store, calendar: calendar, from: from, to: to)
+    }
+
+    static func summaries(store: HKHealthStore, calendar: Calendar, from: Date, to: Date) async throws -> [HKActivitySummary] {
         func comps(_ d: Date) -> DateComponents {
             var c = calendar.dateComponents([.era, .year, .month, .day], from: d)
             c.calendar = calendar

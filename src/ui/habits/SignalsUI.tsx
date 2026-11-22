@@ -19,7 +19,7 @@ import {
 } from "../../model/reduce";
 import { expectationOf } from "../../model/schedule";
 import { ago, compactNumber, formatMetric, type Effect, type SignalInfo, type SignalMetric } from "../../model/signals";
-import type { Event, Habit, HabitDisplay, MetricRef, Threshold } from "../../model/types";
+import type { DeviceRecipe, Event, Habit, HabitDisplay, MetricRef, Threshold } from "../../model/types";
 import type { Signals } from "../../signals/useSignals";
 import { Modal } from "../Modal";
 
@@ -355,6 +355,22 @@ function CountsWhen(props: { signals: Signals; id: string; value: Threshold | un
 }
 
 /** A starting value for a new threshold: the metric's latest day total, rounded. */
+/**
+ * Whether a phone with the data itself (the iOS app, Apple Health) counts this
+ * signal on its own, offline and at once, before the service has it. Offered
+ * when the catalog has a recipe; saved with the habit, so every phone uses it.
+ */
+function OnDevice(props: { offered?: DeviceRecipe; value?: DeviceRecipe; onChange: (r: DeviceRecipe | undefined) => void }) {
+  const recipe = props.value ?? props.offered;
+  if (!recipe) return null;
+  return (
+    <label class="check">
+      <input type="checkbox" checked={!!props.value} onChange={(e) => props.onChange(e.currentTarget.checked ? recipe : undefined)} />
+      Also counts on iPhone right away, from Apple Health (even offline)
+    </label>
+  );
+}
+
 function suggestedValue(signals: Signals, id: string, metric: string): number {
   const days = signals.index.get(id)?.byDate;
   if (!days) return 1;
@@ -378,8 +394,16 @@ export function LinkedDataField(props: {
   display: HabitDisplay;
   thresholds: Threshold[];
   onChange: (signals: string[], display: HabitDisplay, thresholds: Threshold[]) => void;
+  /** Device recipes by signal (Habit.recipes). */
+  recipes: Record<string, DeviceRecipe>;
+  onRecipes: (r: Record<string, DeviceRecipe>) => void;
 }) {
-  const { signals, value, display, thresholds } = props;
+  const { signals, value, display, thresholds, recipes } = props;
+  const withoutRecipe = (id: string) => Object.fromEntries(Object.entries(recipes).filter(([k]) => k !== id));
+  const link = (s: SignalInfo) => {
+    change([...value, s.id], display);
+    if (s.device) props.onRecipes({ ...recipes, [s.id]: s.device });
+  };
   const [query, setQuery] = useState("");
   if (!signals.state.enabled && value.length === 0) return null;
 
@@ -420,11 +444,13 @@ export function LinkedDataField(props: {
           <li key={id} class="linked">
             <div class="linked-head">
               <span>{signalName(signals, id)}</span>
-              <button type="button" class="ghost" aria-label={`Unlink ${signalName(signals, id)}`} onClick={() => change(value.filter((x) => x !== id), display)}>
+              <button type="button" class="ghost" aria-label={`Unlink ${signalName(signals, id)}`} onClick={() => (change(value.filter((x) => x !== id), display), props.onRecipes(withoutRecipe(id)))}>
                 ×
               </button>
             </div>
             <CountsWhen signals={signals} id={id} value={thresholds.find((t) => t.signal === id)} onChange={(t) => setThreshold(id, t)} />
+            <OnDevice offered={signals.info(id)?.device} value={recipes[id]}
+              onChange={(r) => props.onRecipes(r ? { ...recipes, [id]: r } : withoutRecipe(id))} />
           </li>
         ))}
       </ul>
@@ -440,7 +466,7 @@ export function LinkedDataField(props: {
             <ul class="matches">
               {matches.map((s) => (
                 <li key={s.id}>
-                  <button type="button" onClick={() => (change([...value, s.id], display), setQuery(""))}>
+                  <button type="button" onClick={() => (link(s), setQuery(""))}>
                     <span>{s.label}</span>
                     <small class="muted">
                       {s.account}

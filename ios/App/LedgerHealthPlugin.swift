@@ -13,6 +13,7 @@ public class LedgerHealthPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "status", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setPush", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "seed", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "recent", returnType: CAPPluginReturnPromise),
     ]
 
     private func answer(_ call: CAPPluginCall, _ s: HealthSync.Status) {
@@ -54,6 +55,18 @@ public class LedgerHealthPlugin: CAPPlugin, CAPBridgedPlugin {
             do {
                 try await HealthSync.shared.setPush(url: call.getString("url"), token: call.getString("token"))
                 answer(call, await HealthSync.shared.status())
+            } catch {
+                call.reject(error.localizedDescription)
+            }
+        }
+    }
+
+    /// days: how far back (default 14). Read straight from HealthKit; works offline.
+    @objc func recent(_ call: CAPPluginCall) {
+        let days = max(1, min(call.getInt("days") ?? 14, 60))
+        Task {
+            do {
+                call.resolve(try await HealthRecent.read(store: HealthSync.shared.store, days: days).dictionary())
             } catch {
                 call.reject(error.localizedDescription)
             }

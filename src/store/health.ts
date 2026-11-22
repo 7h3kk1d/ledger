@@ -4,6 +4,9 @@
 // health data reaches habits as signals from wherever the batches go (collectors' healthkit).
 // A no-op in a browser.
 
+import { DeviceHealth } from "../signals/device/deviceHealth";
+import type { HealthRecords } from "../signals/device/healthkit";
+
 export interface HealthStatus {
   /** HealthKit exists on this device. */
   available: boolean;
@@ -24,6 +27,8 @@ export interface HealthStatus {
 }
 
 interface HealthPlugin {
+  /** The last `days` straight from HealthKit, for on-device signals (offline). */
+  recent(o: { days: number }): Promise<HealthRecords>;
   authorize(): Promise<HealthStatus>;
   sync(): Promise<HealthStatus>;
   status(): Promise<HealthStatus>;
@@ -34,6 +39,16 @@ interface HealthPlugin {
 export function nativeHealth(): HealthPlugin | undefined {
   const cap = (globalThis as { Capacitor?: { isNativePlatform?: () => boolean; Plugins?: Record<string, unknown> } }).Capacitor;
   return cap?.isNativePlatform?.() ? (cap.Plugins?.LedgerHealth as HealthPlugin | undefined) : undefined;
+}
+
+let device: DeviceHealth | undefined;
+
+/** This phone's signal provider (HealthKit recipes), in the iOS app only. */
+export function healthSignals(): DeviceHealth | undefined {
+  const h = nativeHealth();
+  if (!h) return undefined;
+  device ??= new DeviceHealth(h);
+  return device;
 }
 
 /** Not more often than this when the app keeps coming back. */
@@ -48,7 +63,9 @@ export async function syncHealth(force = false, now = Date.now()): Promise<Healt
   const s = await h.status();
   if (!s.available || !s.asked) return s;
   last = now;
-  return h.sync();
+  const synced = await h.sync();
+  void device?.refresh(); // what was just read may tick a habit
+  return synced;
 }
 
 /** On launch and each time the app comes back to the foreground. */
@@ -56,7 +73,9 @@ export function startHealth(): () => void {
   if (!nativeHealth()) return () => {};
   void syncHealth().catch(() => {});
   const onVisible = () => {
-    if (document.visibilityState === "visible") void syncHealth().catch(() => {});
+    if (document.visibilityState !== "visible") return;
+    void device?.refresh();
+    void syncHealth().catch(() => {});
   };
   document.addEventListener("visibilitychange", onVisible);
   return () => document.removeEventListener("visibilitychange", onVisible);

@@ -282,6 +282,17 @@ export function setHabitThresholds(h: DocHandle<LedgerDoc>, habitId: string, thr
 }
 
 
+/** A habit's device recipes, all of them (see Habit.recipes); an empty map removes them. */
+export function setHabitRecipes(h: DocHandle<LedgerDoc>, habitId: string, recipes: Record<string, DeviceRecipe>): void {
+  h.change((d) => {
+    const habit = d.habits[habitId];
+    if (!habit) return;
+    const entries = Object.entries(recipes);
+    if (entries.length) habit.recipes = Object.fromEntries(entries.map(([k, r]) => [k, { ...r }]));
+    else delete habit.recipes;
+  });
+}
+
 /** A habit's device recipe for one linked signal (see Habit.recipes); undefined removes it. */
 export function setHabitRecipe(h: DocHandle<LedgerDoc>, habitId: string, signalId: string, recipe: DeviceRecipe | undefined): void {
   h.change((d) => {
