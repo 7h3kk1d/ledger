@@ -75,6 +75,7 @@ export function mergeStates(remote: SignalsState, device: SignalsState | undefin
     enabled: remote.enabled || device.enabled,
     catalog: [...remote.catalog, ...device.catalog.filter((s) => !known.has(s.id))],
     data,
+    deviceOk: device.lastOk,
   };
 }
 

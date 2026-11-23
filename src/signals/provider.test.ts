@@ -64,3 +64,15 @@ describe("recipes on habits", () => {
     expect(validRecipe({ kind: "healthkit.sample", type: "bodyMass" })).toEqual({ kind: "healthkit.sample", type: "bodyMass" });
   });
 });
+
+describe("mergeStates: the phone's own freshness", () => {
+  it("says when this phone last read its data, so an unreachable server isn't the whole story", () => {
+    const remote: SignalsState = { enabled: true, catalog: [], data: new Map(), loading: false, error: "offline" };
+    const device: SignalsState = {
+      enabled: true, catalog: [], loading: false, lastOk: 1234,
+      data: new Map([["s", { observations: [], current: {} } as unknown as SignalData]]),
+    };
+    expect(mergeStates(remote, device).deviceOk).toBe(1234);
+    expect(mergeStates(remote, undefined).deviceOk).toBeUndefined();
+  });
+});

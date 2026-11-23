@@ -288,9 +288,13 @@ export function Habits({ handle }: { handle: DocHandle<LedgerDoc> }) {
             note={
               signals.state.error && habits.some((h) => signalsOf(h).length) ? (
                 <small class="signals-stale" title={signals.state.error}>
-                  {signals.state.lastOk
-                    ? `Linked data from ${ago(new Date(signals.state.lastOk).toISOString())}`
-                    : "Linked data unavailable"}
+                  {signals.state.deviceOk
+                    ? signals.state.lastOk
+                      ? `Server data from ${ago(new Date(signals.state.lastOk).toISOString())}; this phone's is current`
+                      : "Server unreachable: counting from this phone"
+                    : signals.state.lastOk
+                      ? `Linked data from ${ago(new Date(signals.state.lastOk).toISOString())}`
+                      : "Linked data unavailable"}
                 </small>
               ) : undefined
             }

@@ -35,6 +35,8 @@ export interface SignalsState {
   data: ReadonlyMap<string, SignalData>;
   /** When the service last answered (ms), from this device. */
   lastOk?: number;
+  /** When this phone last read its own data (HealthKit), if it has a device provider. */
+  deviceOk?: number;
   /** The last refresh failed: showing what was kept. */
   error?: string;
   loading: boolean;
