@@ -178,25 +178,24 @@ final class HealthReader {
             guard var from = start else { return 0 }
             from = hourFloor(from)
             let options: HKStatisticsOptions = t.stat == .sum ? .cumulativeSum : [.discreteMin, .discreteAverage, .discreteMax]
+            let recent = now.addingTimeInterval(-2 * 86400)
             while from < now {
                 let to = min(from.addingTimeInterval(window), now)
-                let samples = HKQuery.predicateForSamples(withStart: from, end: to)
-                let collection = try await HKStatisticsCollectionQueryDescriptor(
-                    predicate: .quantitySample(type: type, predicate: samples), options: options,
-                    anchorDate: from, intervalComponents: DateComponents(hour: 1)).result(for: store)
-                var rows: [HealthHourly] = []
-                collection.enumerateStatistics(from: from, to: to) { s, _ in
-                    var row = HealthHourly(type: t.name, hour: HealthTime.string(s.startDate), unit: t.label)
-                    if t.stat == .sum {
-                        guard let sum = s.sumQuantity() else { return }
-                        row.sum = sum.doubleValue(for: t.unit)
-                    } else {
-                        guard let mn = s.minimumQuantity(), let av = s.averageQuantity(), let mx = s.maximumQuantity() else { return }
-                        row.min = mn.doubleValue(for: t.unit)
-                        row.avg = av.doubleValue(for: t.unit)
-                        row.max = mx.doubleValue(for: t.unit)
+                var rows: [HealthHourly]
+                do {
+                    rows = try await hours(t, type, options, from: from, to: to)
+                } catch {
+                    // HealthKit refuses some stretches of Watch-heavy types ("Unable to invalidate
+                    // interval: no data source available"). Go a day at a time and skip the days it
+                    // refuses: every sample is sent anyway. A refused recent day is still reported.
+                    rows = []
+                    var day = from
+                    while day < to {
+                        let end = min(day.addingTimeInterval(86400), to)
+                        do { rows += try await hours(t, type, options, from: day, to: end) }
+                        catch { if end > recent { throw error } }
+                        day = end
                     }
-                    rows.append(row)
                 }
                 if !rows.isEmpty {
                     var b = newBatch()
@@ -212,6 +211,29 @@ final class HealthReader {
             try persist(state)
         }
         return total
+    }
+
+    private func hours(_ t: HealthTypes.Hourly, _ type: HKQuantityType, _ options: HKStatisticsOptions,
+                       from: Date, to: Date) async throws -> [HealthHourly] {
+        let samples = HKQuery.predicateForSamples(withStart: from, end: to)
+        let collection = try await HKStatisticsCollectionQueryDescriptor(
+            predicate: .quantitySample(type: type, predicate: samples), options: options,
+            anchorDate: hourFloor(from), intervalComponents: DateComponents(hour: 1)).result(for: store)
+        var rows: [HealthHourly] = []
+        collection.enumerateStatistics(from: from, to: to) { s, _ in
+            var row = HealthHourly(type: t.name, hour: HealthTime.string(s.startDate), unit: t.label)
+            if t.stat == .sum {
+                guard let sum = s.sumQuantity() else { return }
+                row.sum = sum.doubleValue(for: t.unit)
+            } else {
+                guard let mn = s.minimumQuantity(), let av = s.averageQuantity(), let mx = s.maximumQuantity() else { return }
+                row.min = mn.doubleValue(for: t.unit)
+                row.avg = av.doubleValue(for: t.unit)
+                row.max = mx.doubleValue(for: t.unit)
+            }
+            rows.append(row)
+        }
+        return rows
     }
 
     /// The rings, 180 days per batch; the last three days are read again next time.
