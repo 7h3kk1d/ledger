@@ -119,7 +119,19 @@ final class HealthBatchTests: XCTestCase {
     func testWhichStatusesWaitAndWhichAreRefused() {
         XCTAssertEqual([200, 202, 204].map(HealthPush.verdict), [.taken, .taken, .taken])
         XCTAssertEqual([400, 413, 422].map(HealthPush.verdict), [.refused, .refused, .refused])
-        XCTAssertEqual([401, 408, 429, 500, 503, 0].map(HealthPush.verdict), [.later, .later, .later, .later, .later, .later])
+        XCTAssertEqual([401, 403, 404, 408, 429, 500, 503, 0].map(HealthPush.verdict), Array(repeating: .later, count: 8))
+    }
+
+    // a mistyped receiver URL once set everything aside: fixing the URL sends it all again
+    func testRefusedBatchesGoBackInOrderWhenTheReceiverChanges() async throws {
+        let outbox = HealthOutbox(dir: dir.appending(path: "outbox"))
+        for i in 0 ..< 3 { try outbox.add(batch(), now: Date(timeIntervalSince1970: Double(i))) }
+        let names = outbox.pending().map(\.lastPathComponent)
+        _ = await HealthPush.send(outbox, to: URL(string: "https://example.test/ingest")!, token: "t") { _, _ in 422 }
+        XCTAssertEqual(outbox.rejected().count, 3)
+        try outbox.requeueRejected()
+        XCTAssertEqual(outbox.rejected(), [])
+        XCTAssertEqual(outbox.pending().map(\.lastPathComponent), names)
     }
 
     func testStateRoundTrips() throws {

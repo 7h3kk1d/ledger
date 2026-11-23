@@ -72,7 +72,10 @@ actor HealthSync {
 
     func setPush(url: String?, token: String?) throws {
         var s = HealthState.load(stateURL)
-        s.pushUrl = url?.isEmpty == false ? url : nil
+        let new = url?.isEmpty == false ? url : nil
+        // a new receiver, or a new token: what the old setup refused gets another chance
+        if new != s.pushUrl || token != nil { try outbox.requeueRejected() }
+        s.pushUrl = new
         try s.save(stateURL)
         if let token { HealthToken.set(token) }
     }

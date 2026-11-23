@@ -23,7 +23,8 @@ struct HealthOutbox {
         pending().reduce(0) { $0 + ((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
     }
 
-    /// Batches the receiver refused for good (health/rejected/), kept to look at, never re-sent.
+    /// Batches the receiver refused for good (health/rejected/), kept to look at; re-sent only when
+    /// the receiver changes (requeueRejected).
     var rejectedDir: URL { dir.deletingLastPathComponent().appending(path: "rejected", directoryHint: .isDirectory) }
 
     func rejected() -> [URL] {
@@ -33,6 +34,13 @@ struct HealthOutbox {
     func reject(_ file: URL) throws {
         try FileManager.default.createDirectory(at: rejectedDir, withIntermediateDirectories: true)
         try FileManager.default.moveItem(at: file, to: rejectedDir.appending(path: file.lastPathComponent))
+    }
+
+    /// Puts the refused batches back in the queue, in their order (names are times).
+    func requeueRejected() throws {
+        guard !rejected().isEmpty else { return }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for f in rejected() { try FileManager.default.moveItem(at: f, to: dir.appending(path: f.lastPathComponent)) }
     }
 
     private static func files(in dir: URL) -> [URL] {
@@ -58,10 +66,9 @@ enum HealthPush {
     static func verdict(_ status: Int) -> Verdict {
         switch status {
         case 200 ..< 300: .taken
-        // a bad token, a timeout or too many requests: the same batch may go through later
-        case 401, 408, 429: .later
-        case 400 ..< 500: .refused
-        default: .later // 5xx, no answer
+        // only what's about the batch itself: malformed, too big, not a batch
+        case 400, 413, 415, 422: .refused
+        default: .later // a wrong address (404), a bad token, a timeout, 5xx, no answer
         }
     }
 
