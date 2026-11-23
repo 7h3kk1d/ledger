@@ -147,4 +147,20 @@ final class HealthBatchTests: XCTestCase {
         XCTAssertEqual(back.hourlyFrom, s.hourlyFrom)
         XCTAssertEqual(HealthState.load(dir.appending(path: "missing.json")).anchors, [:])
     }
+
+    // a sync that loaded the old receiver mustn't put it back over one saved while it ran
+    func testASyncsSaveKeepsAReceiverSetMeanwhile() throws {
+        let url = dir.appending(path: "state.json")
+        var sync = HealthState()
+        sync.pushUrl = "https://example.test/ing"
+        try sync.save(url)
+        var user = HealthState.load(url)
+        user.pushUrl = "https://example.test/ingest"
+        try user.save(url)
+        sync.anchors["sleep"] = Data([9])
+        let merged = try sync.saveKeepingSettings(url)
+        XCTAssertEqual(merged.pushUrl, "https://example.test/ingest")
+        XCTAssertEqual(HealthState.load(url).pushUrl, "https://example.test/ingest")
+        XCTAssertEqual(HealthState.load(url).anchors["sleep"], Data([9]))
+    }
 }

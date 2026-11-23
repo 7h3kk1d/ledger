@@ -35,6 +35,18 @@ struct HealthState: Codable {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try JSONEncoder().encode(self).write(to: url, options: .atomic)
     }
+
+    /// Saves a sync's progress but keeps what was set meanwhile: a backfill's sync runs for minutes,
+    /// and saving the receiver (setPush) or connecting (authorize) can happen while it waits.
+    @discardableResult
+    func saveKeepingSettings(_ url: URL) throws -> HealthState {
+        var s = self
+        let disk = HealthState.load(url)
+        s.pushUrl = disk.pushUrl
+        s.connected = disk.connected ?? s.connected
+        try s.save(url)
+        return s
+    }
 }
 
 final class HealthReader {

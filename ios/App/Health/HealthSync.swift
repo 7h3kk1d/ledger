@@ -113,7 +113,7 @@ actor HealthSync {
                     store: store, state: state,
                     newBatch: { HealthBatch(created_at: HealthTime.string(Date()), app: app, device: device, time_zone: TimeZone.current.identifier) },
                     emit: { try outbox.add($0) },
-                    persist: { try $0.save(stateURL) },
+                    persist: { try $0.saveKeepingSettings(stateURL) },
                     room: { outbox.pendingBytes() < Self.outboxCap })
                 do {
                     let n = try await reader.run()
@@ -127,7 +127,7 @@ actor HealthSync {
                 }
                 state.backfilling = reader.full
                 full = reader.full
-                try? state.save(stateURL)
+                state = (try? state.saveKeepingSettings(stateURL)) ?? state
             }
             guard let raw = state.pushUrl, let url = URL(string: raw), let token = HealthToken.get(), !outbox.pending().isEmpty else { break }
             let r = await HealthPush.send(outbox, to: url, token: token, budget: unmetered ? nil : Self.meteredBudget)
