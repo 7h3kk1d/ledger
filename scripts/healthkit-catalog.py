@@ -10,7 +10,8 @@ import re
 import sys
 from pathlib import Path
 
-# Dense types: hourly statistics merged across devices, not every sample (spec/healthkit-batch.md).
+# Every sample of every type is sent. Dense types also get hourly statistics merged across devices
+# (the iPhone's and the Watch's steps not counted twice; spec/healthkit-batch.md).
 HOURLY_SUM = {"StepCount", "DistanceWalkingRunning", "DistanceCycling", "ActiveEnergyBurned", "BasalEnergyBurned",
               "FlightsClimbed", "AppleExerciseTime", "AppleStandTime", "AppleMoveTime", "TimeInDaylight",
               "DistanceSwimming", "SwimmingStrokeCount", "PushCount", "DistanceWheelchair", "DistanceDownhillSnowSports",
@@ -47,16 +48,16 @@ def main(headers: Path) -> None:
     print("// know yet are skipped at run time. spec/healthkit-batch.md says how each kind is sent.")
     print("import HealthKit\n")
     print("enum HealthCatalog {")
-    print("    /// How a quantity type is sent: every sample, or hourly statistics merged across devices.")
-    print("    enum Policy { case samples, hourlySum, hourlyRange }\n")
-    print("    struct Quantity { let id: HKQuantityTypeIdentifier; let name: String; let unit: String; let policy: Policy }")
+    print("    /// Every sample is sent; a dense type also as hourly statistics, merged across devices.")
+    print("    enum Hourly { case sum, range }\n")
+    print("    struct Quantity { let id: HKQuantityTypeIdentifier; let name: String; let unit: String; let hourly: Hourly? }")
     print("    struct Category { let id: HKCategoryTypeIdentifier; let name: String }\n")
     print("    static let quantities: [Quantity] = [")
     for n, comment in identifiers(types, "HKQuantityTypeIdentifier"):
         unit = comment.split(",")[0].strip()
         unit = UNIT.get(unit, unit)
-        policy = "hourlySum" if n in HOURLY_SUM else "hourlyRange" if n in HOURLY_RANGE else "samples"
-        print(f'        .init(id: .init(rawValue: "HKQuantityTypeIdentifier{n}"), name: "{name(n)}", unit: "{unit}", policy: .{policy}),')
+        hourly = ".sum" if n in HOURLY_SUM else ".range" if n in HOURLY_RANGE else "nil"
+        print(f'        .init(id: .init(rawValue: "HKQuantityTypeIdentifier{n}"), name: "{name(n)}", unit: "{unit}", hourly: {hourly}),')
     print("    ]\n")
     print("    /// Sleep has its own list (stages); the rest are samples with HealthKit's raw value.")
     print("    static let categories: [Category] = [")

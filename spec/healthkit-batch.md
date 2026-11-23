@@ -13,6 +13,10 @@ Content-Type: application/json
 Content-Encoding: gzip
 ```
 
+On a metered network (cellular, Low Data Mode) one sync sends at most 5 MB, oldest first; the
+rest waits for Wi-Fi, where a sync keeps reading and sending until history is in. The phone reads
+ahead only while its outbox holds under 32 MB, so a first sync's backfill comes a slice at a time.
+
 Any 2xx means the batch is stored; the app then deletes its copy. Anything else (or no answer) and
 the app keeps it and tries again on its next sync, in order. So a receiver may see a batch twice:
 everything in it is keyed so that storing it again changes nothing.
@@ -99,13 +103,14 @@ WorkoutRoute = { workout: uuid, uuid: string /* the route sample */,
 Sleep = { uuid, start, end, stage: "inBed" | "asleepUnspecified" | "awake" | "asleepCore"
                                    | "asleepDeep" | "asleepREM", source, metadata? }
 
-// every sample of each quantity type not sent hourly: body measurements, heart (restingHeartRate,
-// heartRateVariabilitySDNN, vo2Max, …), mobility (walkingSpeed, walkingStepLength,
+// every sample of every quantity type (dense ones too, with their own device and interval; the
+// hourly statistics below are the merged totals): heart (heartRate, restingHeartRate,
+// heartRateVariabilitySDNN, vo2Max, …), energy, steps, distances, mobility (walkingSpeed, walkingStepLength,
 // walkingAsymmetryPercentage, stairAscentSpeed, sixMinuteWalkTestDistance, …), running metrics,
 // audio exposure (dBASPL), physicalEffort, nutrition (dietary*: g, kcal, mL), and the rest
 Sample = { uuid, type: string, start, end, value: number, unit: string, source, metadata? }
 
-// dense types, one row per type and hour (HealthKit's merged statistics: the iPhone's and the
+// dense types, also one row per type and hour (HealthKit's merged statistics: the iPhone's and the
 // Watch's steps aren't counted twice). Sums: stepCount, the distances, activeEnergyBurned,
 // basalEnergyBurned, flightsClimbed, appleExerciseTime, appleStandTime, appleMoveTime,
 // timeInDaylight, swimmingStrokeCount, pushCount, nikeFuel. Ranges (min, avg, max): heartRate,

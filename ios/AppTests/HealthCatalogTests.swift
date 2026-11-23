@@ -15,8 +15,10 @@ final class HealthCatalogTests: XCTestCase {
     func testNamesAreUniqueAndEveryKnownTypeIsRead() {
         let names = HealthCatalog.quantities.map(\.name) + HealthCatalog.categories.map(\.name)
         XCTAssertEqual(Set(names).count, names.count)
-        XCTAssertEqual(HealthTypes.sparse.count + HealthTypes.hourly.count, HealthTypes.byType.count)
-        XCTAssertGreaterThan(HealthTypes.sparse.count, 90)
+        XCTAssertEqual(HealthTypes.sparse.count, HealthTypes.byType.count) // every type, every sample
+        XCTAssertGreaterThan(HealthTypes.sparse.count, 110)
+        XCTAssertTrue(HealthTypes.sparse.contains { $0.name == "heartRate" })
+        XCTAssertTrue(HealthTypes.hourly.contains { $0.name == "heartRate" && $0.stat == .range })
         XCTAssertGreaterThan(HealthTypes.categories.count, 60)
         // the names other code reads (signals.sql, the on-device rules) keep their spelling and unit
         XCTAssertEqual(HealthTypes.byName["bodyMass"]?.label, "kg")

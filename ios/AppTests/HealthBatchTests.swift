@@ -96,6 +96,26 @@ final class HealthBatchTests: XCTestCase {
         XCTAssertEqual(outbox.rejected().map(\.lastPathComponent), [names[0]])
     }
 
+    // on cellular: what fits the budget goes, in order; the rest waits for Wi-Fi
+    func testAMeteredPushStopsAtItsBudget() async throws {
+        let outbox = HealthOutbox(dir: dir.appending(path: "outbox"))
+        for i in 0 ..< 4 { try outbox.add(batch([trainerize]), now: Date(timeIntervalSince1970: Double(i))) }
+        XCTAssertGreaterThan(outbox.pendingBytes(), 0)
+        let one = HealthPush.gzip(try Data(contentsOf: outbox.pending()[0])).count
+        var sizes: [Int] = []
+        let r = await HealthPush.send(outbox, to: URL(string: "https://example.test/ingest")!, token: "t", budget: one * 2 + one / 2) { _, body in
+            sizes.append(body.count)
+            return 202
+        }
+        XCTAssertEqual(r.pushed, 2)
+        XCTAssertEqual(r.held, 2)
+        XCTAssertNil(r.error)
+        XCTAssertEqual(outbox.pending().count, 2)
+        let rest = await HealthPush.send(outbox, to: URL(string: "https://example.test/ingest")!, token: "t") { _, _ in 202 } // Wi-Fi
+        XCTAssertEqual(rest.pushed, 2)
+        XCTAssertEqual(rest.held, 0)
+    }
+
     func testWhichStatusesWaitAndWhichAreRefused() {
         XCTAssertEqual([200, 202, 204].map(HealthPush.verdict), [.taken, .taken, .taken])
         XCTAssertEqual([400, 413, 422].map(HealthPush.verdict), [.refused, .refused, .refused])

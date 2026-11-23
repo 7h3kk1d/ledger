@@ -19,6 +19,10 @@ struct HealthState: Codable {
     var lastPushAt: Date?
     var lastPushCount: Int?
     var lastPushError: String?
+    /// Batches the last push left for Wi-Fi.
+    var lastPushHeld: Int?
+    /// The last read stopped at the outbox cap: history is still being read.
+    var backfilling: Bool?
     /// What was last sent of the kinds sent whole when they change.
     var characteristics: [HealthCharacteristic]?
     var medications: [HealthMedication]?
@@ -42,13 +46,18 @@ final class HealthReader {
     let calendar: Calendar
     /// Kinds that couldn't be read this run (the rest were).
     var problems: [String] = []
+    /// Whether the outbox may take more; when it can't, the rest waits for the next run.
+    let room: () -> Bool
+    /// This run stopped early because the outbox was full (a backfill: read more once it's sent).
+    private(set) var full = false
 
     /// How much history the first run reads (the Apple Watch's first year).
     static let historyStart = ISO8601DateFormatter().date(from: "2014-09-01T00:00:00Z")!
 
     init(store: HKHealthStore, state: HealthState, calendar: Calendar = .current,
          newBatch: @escaping () -> HealthBatch, emit: @escaping (HealthBatch) throws -> Void,
-         persist: @escaping (HealthState) throws -> Void) {
+         persist: @escaping (HealthState) throws -> Void, room: @escaping () -> Bool = { true }) {
+        self.room = room
         self.store = store
         self.state = state
         self.calendar = calendar
@@ -128,6 +137,10 @@ final class HealthReader {
                                build: ([T], [HKDeletedObject]) async throws -> HealthBatch) async throws -> Int {
         var total = 0
         while true {
+            guard room() else {
+                full = true
+                return total
+            }
             let anchor = state.anchors[key].flatMap { try? NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: $0) }
             let result = try await HKAnchoredObjectQueryDescriptor(predicates: [predicate], anchor: anchor, limit: limit).result(for: store)
             let batch = try await build(result.addedSamples, result.deletedObjects)

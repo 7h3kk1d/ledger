@@ -19,7 +19,7 @@ public class LedgerHealthPlugin: CAPPlugin, CAPBridgedPlugin {
     private func answer(_ call: CAPPluginCall, _ s: HealthSync.Status) {
         let iso = ISO8601DateFormatter()
         var out: [String: Any] = ["available": s.available, "asked": s.asked, "newKinds": s.newKinds, "waiting": s.waiting, "hasToken": s.hasToken,
-                                  "rejected": s.rejected]
+                                  "rejected": s.rejected, "held": s.held, "backfilling": s.backfilling]
         if let v = s.lastRead { out["lastRead"] = iso.string(from: v) }
         if let v = s.lastReadCount { out["lastReadCount"] = v }
         if let v = s.lastReadError { out["lastReadError"] = v }

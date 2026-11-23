@@ -26,6 +26,10 @@ export interface HealthStatus {
   lastPushError?: string;
   /** Batches the receiver refused for good, set aside on the phone (not sent again). */
   rejected?: number;
+  /** Batches waiting for Wi-Fi: a push on cellular sends a few MB at most. */
+  held?: number;
+  /** History is still being read, a slice per sync (all of it on Wi-Fi). */
+  backfilling?: boolean;
 }
 
 interface HealthPlugin {

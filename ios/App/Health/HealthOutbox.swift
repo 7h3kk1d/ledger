@@ -18,6 +18,11 @@ struct HealthOutbox {
         Self.files(in: dir)
     }
 
+    /// How much is waiting, uncompressed (the reader stops adding at HealthSync.outboxCap).
+    func pendingBytes() -> Int {
+        pending().reduce(0) { $0 + ((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
+    }
+
     /// Batches the receiver refused for good (health/rejected/), kept to look at, never re-sent.
     var rejectedDir: URL { dir.deletingLastPathComponent().appending(path: "rejected", directoryHint: .isDirectory) }
 
@@ -41,6 +46,8 @@ enum HealthPush {
     struct Result: Equatable {
         var pushed = 0
         var rejected = 0
+        /// Batches left for an unmetered network (Wi-Fi): this push's budget was spent.
+        var held = 0
         var error: String?
     }
 
@@ -60,17 +67,27 @@ enum HealthPush {
 
     /// Send what's waiting, oldest first. A batch the receiver refuses for good is set aside; any
     /// other failure stops, and everything left is tried again next sync.
-    static func send(_ outbox: HealthOutbox, to url: URL, token: String,
+    /// `budget`: at most this many bytes (compressed) this time, on a metered network; nil: no limit.
+    /// A batch that doesn't fit waits, and so does everything after it (they go in order).
+    static func send(_ outbox: HealthOutbox, to url: URL, token: String, budget: Int? = nil,
                      post: (URLRequest, Data) async throws -> Int = urlSessionPost) async -> Result {
         var result = Result()
-        for file in outbox.pending() {
+        var sent = 0
+        let files = outbox.pending()
+        for (i, file) in files.enumerated() {
             do {
+                let body = gzip(try Data(contentsOf: file))
+                if let budget, sent + body.count > budget {
+                    result.held = files.count - i
+                    return result
+                }
+                sent += body.count
                 var req = URLRequest(url: url, timeoutInterval: 60)
                 req.httpMethod = "POST"
                 req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                 req.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 req.setValue("gzip", forHTTPHeaderField: "Content-Encoding")
-                let status = try await post(req, gzip(try Data(contentsOf: file)))
+                let status = try await post(req, body)
                 switch verdict(status) {
                 case .taken:
                     try FileManager.default.removeItem(at: file)

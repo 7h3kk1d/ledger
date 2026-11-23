@@ -31,6 +31,10 @@ actor HealthSync {
         var lastPushError: String?
         /// Batches the receiver refused for good, set aside in health/rejected/.
         var rejected: Int
+        /// Batches waiting for Wi-Fi (the last push spent its cellular budget).
+        var held: Int
+        /// History is still being read (a slice per sync; on Wi-Fi, all of it).
+        var backfilling: Bool
     }
 
     func status() async -> Status {
@@ -46,7 +50,7 @@ actor HealthSync {
                       lastReadCount: s.lastReadCount, lastReadError: s.lastReadError, waiting: outbox.pending().count,
                       pushUrl: s.pushUrl, hasToken: HealthToken.get() != nil, lastPushAt: s.lastPushAt,
                       lastPushCount: s.lastPushCount, lastPushError: s.lastPushError,
-                      rejected: outbox.rejected().count)
+                      rejected: outbox.rejected().count, held: s.lastPushHeld ?? 0, backfilling: s.backfilling == true)
     }
 
     func authorize() async throws {
@@ -77,47 +81,70 @@ actor HealthSync {
         return result
     }
 
+    /// The outbox holds at most this much (uncompressed) before reading pauses: a first sync's
+    /// backfill (years of heart rate) is read and sent a slice at a time, not all onto the phone.
+    static let outboxCap = 32 << 20
+    /// On a metered network (cellular, Low Data Mode), one push sends at most this much
+    /// (compressed); the rest waits for Wi-Fi. A day's steady state is far under it.
+    static let meteredBudget = 5 << 20
+
     private func run() async -> Status {
         var state = HealthState.load(stateURL)
-        if HKHealthStore.isHealthDataAvailable() {
-            let device = await MainActor.run {
-                HealthDevice(id: state.deviceId, name: UIDevice.current.name, model: Self.model(), os: UIDevice.current.systemVersion)
+        // on Wi-Fi, a backfill goes on: read a slice, send it, read the next
+        for _ in 0 ..< 1000 {
+            var full = false
+            if HKHealthStore.isHealthDataAvailable() {
+                let device = await MainActor.run {
+                    HealthDevice(id: state.deviceId, name: UIDevice.current.name, model: Self.model(), os: UIDevice.current.systemVersion)
+                }
+                let app = "ledger-ios \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")"
+                let outbox = self.outbox
+                let stateURL = self.stateURL
+                let reader = HealthReader(
+                    store: store, state: state,
+                    newBatch: { HealthBatch(created_at: HealthTime.string(Date()), app: app, device: device, time_zone: TimeZone.current.identifier) },
+                    emit: { try outbox.add($0) },
+                    persist: { try $0.save(stateURL) },
+                    room: { outbox.pendingBytes() < Self.outboxCap })
+                do {
+                    let n = try await reader.run()
+                    state = reader.state
+                    state.lastRead = Date()
+                    state.lastReadCount = n
+                    state.lastReadError = reader.problems.isEmpty ? nil : reader.problems.joined(separator: "; ")
+                } catch {
+                    state = reader.state
+                    state.lastReadError = error.localizedDescription
+                }
+                state.backfilling = reader.full
+                full = reader.full
+                try? state.save(stateURL)
             }
-            let app = "ledger-ios \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")"
-            let outbox = self.outbox
-            let stateURL = self.stateURL
-            let reader = HealthReader(
-                store: store, state: state,
-                newBatch: { HealthBatch(created_at: HealthTime.string(Date()), app: app, device: device, time_zone: TimeZone.current.identifier) },
-                emit: { try outbox.add($0) },
-                persist: { try $0.save(stateURL) })
-            do {
-                let n = try await reader.run()
-                state = reader.state
-                state.lastRead = Date()
-                state.lastReadCount = n
-                state.lastReadError = reader.problems.isEmpty ? nil : reader.problems.joined(separator: "; ")
-            } catch {
-                state = reader.state
-                state.lastReadError = error.localizedDescription
-            }
-            try? state.save(stateURL)
-        }
-        if let raw = state.pushUrl, let url = URL(string: raw), let token = HealthToken.get(), !outbox.pending().isEmpty {
-            let r = await HealthPush.send(outbox, to: url, token: token)
+            guard let raw = state.pushUrl, let url = URL(string: raw), let token = HealthToken.get(), !outbox.pending().isEmpty else { break }
+            let r = await HealthPush.send(outbox, to: url, token: token, budget: unmetered ? nil : Self.meteredBudget)
             state = HealthState.load(stateURL)
             state.lastPushAt = Date()
             state.lastPushCount = r.pushed
+            state.lastPushHeld = r.held
             state.lastPushError = r.error
             try? state.save(stateURL)
+            guard full, unmetered, r.error == nil, r.held == 0 else { break }
         }
         return await status()
     }
 
     private var monitor: NWPathMonitor?
+    /// Wi-Fi or wired, not Low Data Mode: no push budget. Until the monitor has answered, metered.
+    private var unmetered = false
+
+    private func network(_ path: NWPath) {
+        let was = unmetered
+        unmetered = path.status == .satisfied && !path.isExpensive && !path.isConstrained
+        if unmetered, !was { Task { _ = await syncIfConnected() } }
+    }
 
     /// While the app runs: when the network comes back, send what waited (reading what is new
-    /// first), rather than leaving it for the next launch.
+    /// first), rather than leaving it for the next launch; on Wi-Fi, what waited for it too.
     func watchNetwork() {
         guard monitor == nil else { return }
         let m = NWPathMonitor()
@@ -125,6 +152,7 @@ actor HealthSync {
         m.pathUpdateHandler = { path in
             let online = path.status == .satisfied
             defer { wasOnline = online }
+            Task { await HealthSync.shared.network(path) }
             guard online, !wasOnline else { return }
             Task { _ = await HealthSync.shared.syncIfConnected() }
         }

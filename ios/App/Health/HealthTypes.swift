@@ -11,15 +11,16 @@ enum HealthTypes {
         return (q.id, q.name, HKUnit(from: q.unit), q.unit)
     }
 
-    /// Sparse measurements: every sample.
-    static let sparse: [Typed] = HealthCatalog.quantities.filter { $0.policy == .samples }.compactMap(known)
+    /// Every quantity type: every sample.
+    static let sparse: [Typed] = HealthCatalog.quantities.compactMap(known)
 
     enum Stat { case sum, range }
 
-    /// Dense measurements: hourly statistics, merged across devices.
+    /// Dense types, also as hourly statistics merged across devices (the true totals).
     static let hourly: [(id: HKQuantityTypeIdentifier, name: String, unit: HKUnit, label: String, stat: Stat)] =
-        HealthCatalog.quantities.filter { $0.policy != .samples }.compactMap { q in
-            known(q).map { ($0.id, $0.name, $0.unit, $0.label, q.policy == .hourlySum ? Stat.sum : .range) }
+        HealthCatalog.quantities.compactMap { q in
+            guard let h = q.hourly, let t = known(q) else { return nil }
+            return (t.id, t.name, t.unit, t.label, h == .sum ? Stat.sum : .range)
         }
 
     /// Category types this iOS knows.

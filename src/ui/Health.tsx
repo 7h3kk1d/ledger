@@ -17,8 +17,10 @@ function pushLine(s: HealthStatus): string {
   if (!s.pushUrl) return "Not sending anywhere: set a receiver to keep this data off the phone too.";
   const refused = s.rejected ? ` ${s.rejected} batch${s.rejected === 1 ? " was" : "es were"} refused by the receiver and set aside.` : "";
   if (s.lastPushError) return `Couldn’t send (${s.lastPushError}); ${s.waiting} batch${s.waiting === 1 ? "" : "es"} waiting, tried again on the next read.`;
-  if (s.waiting > 0) return `${s.waiting} batch${s.waiting === 1 ? "" : "es"} waiting to send.`;
-  return (s.lastPushAt ? `Everything sent (last ${ago(s.lastPushAt)}).` : "Everything sent.") + refused;
+  const history = s.backfilling ? " Still reading your history: it goes on at each read, all at once on Wi-Fi." : "";
+  if (s.held) return `${s.waiting} batch${s.waiting === 1 ? "" : "es"} waiting for Wi-Fi (on cellular, a read sends a few MB at most).${history}`;
+  if (s.waiting > 0) return `${s.waiting} batch${s.waiting === 1 ? "" : "es"} waiting to send.${history}`;
+  return (s.lastPushAt ? `Everything sent (last ${ago(s.lastPushAt)}).` : "Everything sent.") + refused + history;
 }
 
 export function HealthSettings() {
