@@ -44,6 +44,14 @@ enum HealthTypes {
         (.fitzpatrickSkinType, "fitzpatrickSkinType"), (.wheelchairUse, "wheelchairUse"), (.activityMoveMode, "activityMoveMode"),
     ]
 
+    /// Clinical record types: asked for on their own sheet (HealthSync.authorize), never in readTypes's
+    /// request: without the health-records entitlement asking for them raises.
+    static let clinical: [(id: HKClinicalTypeIdentifier, name: String)] = [
+        ("allergyRecord", "allergy"), ("clinicalNoteRecord", "clinicalNote"), ("conditionRecord", "condition"),
+        ("coverageRecord", "coverage"), ("immunizationRecord", "immunization"), ("labResultRecord", "labResult"),
+        ("medicationRecord", "medication"), ("procedureRecord", "procedure"), ("vitalSignRecord", "vitalSign"),
+    ].map { (HKClinicalTypeIdentifier(rawValue: "HKClinicalTypeIdentifier" + $0.0.prefix(1).uppercased() + $0.0.dropFirst()), $0.1) }
+
     static var readTypes: Set<HKObjectType> {
         var types: Set<HKObjectType> = [
             .workoutType(),

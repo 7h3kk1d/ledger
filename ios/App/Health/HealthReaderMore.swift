@@ -8,9 +8,9 @@ import HealthKit
 
 extension HealthReader {
     static func uuid(_ o: HKObject) -> String { o.uuid.uuidString.lowercased() }
-    private static func src(_ s: HKSample) -> HealthSource { HealthTypes.source(s.sourceRevision, device: s.device) }
-    private static func md(_ s: HKObject) -> [String: JSONValue]? { s.metadata.map(HealthTypes.metadata) }
-    private static func deleted(_ kind: String, _ d: [HKDeletedObject]) -> [HealthDeleted]? {
+    static func src(_ s: HKSample) -> HealthSource { HealthTypes.source(s.sourceRevision, device: s.device) }
+    static func md(_ s: HKObject) -> [String: JSONValue]? { s.metadata.map(HealthTypes.metadata) }
+    static func deleted(_ kind: String, _ d: [HKDeletedObject]) -> [HealthDeleted]? {
         d.isEmpty ? nil : d.map { HealthDeleted(kind: kind, uuid: $0.uuid.uuidString.lowercased()) }
     }
 
@@ -112,6 +112,8 @@ extension HealthReader {
             n += await soft("medications") { try await self.medications() }
         }
         n += await soft("characteristics") { try self.characteristics() }
+        n += await soft("vision prescriptions") { try await self.visionPrescriptions() }
+        n += await clinicalRecords()
         return n
     }
 
@@ -359,5 +361,90 @@ extension HealthReader {
         state.characteristics = out
         try persist(state)
         return out.count
+    }
+}
+
+// MARK: shared one by one, or behind the health-records entitlement
+
+extension HealthReader {
+    /// Glasses and contacts prescriptions the per-item sheet (authorize) shared.
+    func visionPrescriptions() async throws -> Int {
+        try await anchored(key: "vision", predicate: .visionPrescription(), limit: 200) { added, deleted in
+            var b = self.newBatch()
+            b.vision_prescriptions = added.map(Self.vision)
+            b.deleted = Self.deleted("vision_prescription", deleted)
+            return b
+        }
+    }
+
+    static func vision(_ p: HKVisionPrescription) -> HealthVisionPrescription {
+        let diopter = HKUnit.diopter(), deg = HKUnit.degreeAngle(), mm = HKUnit.meterUnit(with: .milli)
+        let prismUnit = HKUnit.prismDiopter()
+        func v(_ q: HKQuantity?, _ u: HKUnit) -> Double? { q.flatMap { $0.is(compatibleWith: u) ? $0.doubleValue(for: u) : nil } }
+        func base(_ b: HKPrismBase) -> String {
+            switch b {
+            case .up: "up"
+            case .down: "down"
+            case .in: "in"
+            case .out: "out"
+            default: "none"
+            }
+        }
+        func lens(_ l: HKLensSpecification?) -> HealthVisionPrescription.Lens? {
+            guard let l else { return nil }
+            var out = HealthVisionPrescription.Lens(sphere: v(l.sphere, diopter) ?? 0, cylinder: v(l.cylinder, diopter),
+                                                    axis: v(l.axis, deg), add: v(l.addPower, diopter))
+            if let g = l as? HKGlassesLensSpecification {
+                out.vertex_mm = v(g.vertexDistance, mm)
+                out.far_pd_mm = v(g.farPupillaryDistance, mm)
+                out.near_pd_mm = v(g.nearPupillaryDistance, mm)
+                if let p = g.prism {
+                    out.prism = .init(amount: v(p.amount, prismUnit) ?? 0, angle: v(p.angle, deg) ?? 0,
+                                      vertical: v(p.verticalAmount, prismUnit) ?? 0, horizontal: v(p.horizontalAmount, prismUnit) ?? 0,
+                                      vertical_base: base(p.verticalBase), horizontal_base: base(p.horizontalBase))
+                }
+            }
+            if let c = l as? HKContactsLensSpecification {
+                out.base_curve_mm = v(c.baseCurve, mm)
+                out.diameter_mm = v(c.diameter, mm)
+            }
+            return out
+        }
+        var out = HealthVisionPrescription(uuid: uuid(p), type: p.prescriptionType == .contacts ? "contacts" : "glasses",
+                                           issued: HealthTime.string(p.dateIssued), expires: p.expirationDate.map(HealthTime.string),
+                                           source: src(p), metadata: md(p))
+        if let g = p as? HKGlassesPrescription {
+            out.right = lens(g.rightEye)
+            out.left = lens(g.leftEye)
+        } else if let c = p as? HKContactsPrescription {
+            out.brand = c.brand
+            out.right = lens(c.rightEye)
+            out.left = lens(c.leftEye)
+        }
+        return out
+    }
+
+    /// Records from providers linked in Health (needs the health-records entitlement and its sheet).
+    func clinicalRecords() async -> Int {
+        var n = 0
+        for (id, name) in HealthTypes.clinical {
+            guard let type = HKClinicalType.clinicalType(forIdentifier: id) else { continue }
+            n += await soft("clinical \(name)") {
+                try await self.anchored(key: "clinical.\(name)", predicate: .clinicalRecord(type: type), limit: 500) { added, deleted in
+                    var b = self.newBatch()
+                    b.clinical_records = added.map { r in
+                        let f = r.fhirResource
+                        return HealthClinicalRecord(
+                            uuid: Self.uuid(r), type: name, name: r.displayName, start: HealthTime.string(r.startDate),
+                            end: HealthTime.string(r.endDate), fhir_type: f?.resourceType.rawValue, fhir_id: f?.identifier,
+                            fhir_version: f?.fhirVersion.stringRepresentation, fhir_source: f?.sourceURL?.absoluteString,
+                            fhir: f.flatMap { String(data: $0.data, encoding: .utf8) }, source: Self.src(r))
+                    }
+                    b.deleted = Self.deleted("clinical_record", deleted)
+                    return b
+                }
+            }
+        }
+        return n
     }
 }

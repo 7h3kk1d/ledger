@@ -58,7 +58,12 @@ actor HealthSync {
         var s = HealthState.load(stateURL)
         s.connected = true
         try s.save(stateURL)
-        // medications are shared one by one, on a sheet of their own; without them the rest still syncs
+        // each on a sheet of its own; declining one leaves the rest syncing. Health records need the
+        // health-records entitlement (project.yml): asking without it would raise, not fail
+        let clinical = Set(HealthTypes.clinical.compactMap { HKClinicalType.clinicalType(forIdentifier: $0.id) as HKObjectType? })
+        try? await store.requestAuthorization(toShare: [], read: clinical)
+        try? await store.requestPerObjectReadAuthorization(for: .visionPrescriptionType(), predicate: nil)
+        // medications are shared one by one too
         if #available(iOS 26.0, *) {
             try? await store.requestPerObjectReadAuthorization(for: .userAnnotatedMedicationType(), predicate: nil)
         }

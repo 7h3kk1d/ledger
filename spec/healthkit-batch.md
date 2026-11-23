@@ -53,17 +53,20 @@ everything in it is keyed so that storing it again changes nothing.
   medications?: Medication[],         // the whole list, when it changes
   doses?: Dose[],
   characteristics?: Characteristic[], // all of them, when they change
+  vision_prescriptions?: VisionPrescription[],
+  clinical_records?: ClinicalRecord[],
   deleted?: { kind: "workout" | "sleep" | "sample" | "category" | "correlation" | "ecg" | "audiogram"
-                  | "heartbeats" | "state_of_mind" | "assessment" | "dose", uuid: string }[],
+                  | "heartbeats" | "state_of_mind" | "assessment" | "dose" | "vision_prescription"
+                  | "clinical_record", uuid: string }[],
 }
 ```
 
 The app reads everything HealthKit lets an app read: every quantity and category type in the iOS
 SDK (`ios/App/Health/HealthCatalog.swift`, generated from its `HKTypeIdentifiers.h`), workouts with
 their series and routes, ECGs, audiograms, heartbeat series, state of mind, GAD-7 and PHQ-9,
-medications and doses (iOS 26; shared one medication at a time on a sheet of their own) and
-characteristics. Not read: clinical records and vision prescriptions (each needs its own
-entitlement or per-item sheet). A type newer than the phone's iOS is skipped.
+medications and doses (iOS 26), vision prescriptions (those two shared one item at a time, on
+sheets of their own), clinical records from providers linked in Health (the health-records
+entitlement, its own sheet) and characteristics. Not read: SMART Health Cards (a picker each time). A type newer than the phone's iOS is skipped.
 
 Times are RFC 3339 UTC (`2026-11-18T21:17:03.120Z`). `source` is the app or device that wrote a
 record into HealthKit: `{ name: string, bundle_id: string, version?: string, device?: string }`.
@@ -162,6 +165,17 @@ Dose = { uuid, start, end, medication: string /* Medication.id */, status: "take
 // biologicalSex ("female" | "male" | "other"), bloodType ("A+", …), dateOfBirth (YYYY-MM-DD),
 // fitzpatrickSkinType (1–6), wheelchairUse ("yes" | "no"), activityMoveMode
 Characteristic = { type: string, value: string }
+
+// powers in dioptres, axis and prism angle in degrees, distances in mm, prism in prism dioptres
+VisionPrescription = { uuid, type: "glasses" | "contacts", issued: string, expires?: string, brand?: string,
+  right?: Lens, left?: Lens, source, metadata? }
+Lens = { sphere, cylinder?, axis?, add?, vertex_mm?, far_pd_mm?, near_pd_mm?, base_curve_mm?, diameter_mm?,
+  prism?: { amount, angle, vertical, horizontal, vertical_base, horizontal_base: "up" | "down" | "in" | "out" | "none" } }
+
+// type: allergy, clinicalNote, condition, coverage, immunization, labResult, medication, procedure,
+// vitalSign; fhir: the FHIR resource's JSON as the provider sent it
+ClinicalRecord = { uuid, type: string, name: string, start, end, fhir_type?: string, fhir_id?: string,
+  fhir_version?: string, fhir_source?: string, fhir?: string, source }
 ```
 
 Keys, for storing a batch again without effect: anything with a `uuid` by it (a route by its

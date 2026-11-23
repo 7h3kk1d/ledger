@@ -56,12 +56,14 @@ targets:
         com.apple.security.application-groups: [group.me.bandukwala.Ledger]
         # reads HealthKit (App/Health/) to push it to a receiver; background delivery comes later
         com.apple.developer.healthkit: true
-        com.apple.developer.healthkit.access: []
+        # health-records: clinical records from providers linked in Health (asked on their own sheet)
+        com.apple.developer.healthkit.access: [health-records]
     info:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: Ledger
         NSHealthShareUsageDescription: Ledger reads your workouts, sleep, activity and measurements to count them toward your habits and send them where you choose.
+        NSHealthClinicalHealthRecordsShareUsageDescription: Ledger reads the health records your providers share with Health, to send them where you choose.
         # only debug builds write (simulator tests seed sample data); release builds never ask
         NSHealthUpdateUsageDescription: Debug builds write sample health data for tests.
         UILaunchScreen: {}

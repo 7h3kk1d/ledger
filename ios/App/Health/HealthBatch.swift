@@ -189,9 +189,39 @@ struct HealthDose: Codable, Equatable {
     let source: HealthSource
 }
 
+/// Glasses or contacts, shared one by one. Powers in dioptres, axis and prism angle in degrees,
+/// distances in mm, prism in prism dioptres.
+struct HealthVisionPrescription: Codable, Equatable {
+    struct Prism: Codable, Equatable {
+        let amount, angle, vertical, horizontal: Double
+        let vertical_base, horizontal_base: String
+    }
+    struct Lens: Codable, Equatable {
+        let sphere: Double
+        var cylinder, axis, add, vertex_mm, far_pd_mm, near_pd_mm, base_curve_mm, diameter_mm: Double?
+        var prism: Prism?
+    }
+    let uuid, type, issued: String
+    var expires: String?
+    var brand: String?
+    var right, left: Lens?
+    let source: HealthSource
+    var metadata: [String: JSONValue]?
+}
+
+/// A record from a provider linked in Health (labs, conditions, immunizations, …): the FHIR
+/// resource as the provider sent it.
+struct HealthClinicalRecord: Codable, Equatable {
+    let uuid, type, name, start, end: String
+    var fhir_type, fhir_id, fhir_version, fhir_source: String?
+    /// The resource's JSON, verbatim.
+    var fhir: String?
+    let source: HealthSource
+}
+
 struct HealthDeleted: Codable, Equatable {
     /// workout | sleep | sample | category | correlation | ecg | audiogram | heartbeats |
-    /// state_of_mind | assessment | dose
+    /// state_of_mind | assessment | dose | vision_prescription | clinical_record
     let kind: String
     let uuid: String
 }
@@ -224,13 +254,15 @@ struct HealthBatch: Codable, Equatable {
     var assessments: [HealthAssessment]?
     var medications: [HealthMedication]?
     var doses: [HealthDose]?
+    var vision_prescriptions: [HealthVisionPrescription]?
+    var clinical_records: [HealthClinicalRecord]?
     var deleted: [HealthDeleted]?
 
     private var counts: [Int?] {
         [workouts?.count, sleep?.count, samples?.count, hourly?.count, activity?.count, categories?.count,
          correlations?.count, characteristics?.count, workout_series?.count, workout_routes?.count, ecg?.count,
          audiograms?.count, heartbeats?.count, state_of_mind?.count, assessments?.count, medications?.count,
-         doses?.count, deleted?.count]
+         doses?.count, vision_prescriptions?.count, clinical_records?.count, deleted?.count]
     }
 
     var isEmpty: Bool { counts.allSatisfy { ($0 ?? 0) == 0 } }
