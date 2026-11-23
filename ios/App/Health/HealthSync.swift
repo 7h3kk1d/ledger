@@ -96,9 +96,14 @@ actor HealthSync {
     /// On a metered network (cellular, Low Data Mode), one push sends at most this much
     /// (compressed); the rest waits for Wi-Fi. A day's steady state is far under it.
     static let meteredBudget = 5 << 20
+    /// A backfill's failed push is tried again this many times, this far apart, before it waits
+    /// for the next sync.
+    static let retries = 10
+    static let retryAfter: Duration = .seconds(30)
 
     private func run() async -> Status {
         var state = HealthState.load(stateURL)
+        var retries = 0
         // on Wi-Fi, a backfill goes on: read a slice, send it, read the next
         for _ in 0 ..< 1000 {
             var full = false
@@ -137,6 +142,14 @@ actor HealthSync {
             state.lastPushHeld = r.held
             state.lastPushError = r.error
             try? state.save(stateURL)
+            // a backfill on Wi-Fi rides out a failed push (the receiver restarting, a blip) rather
+            // than stopping until the app is next opened: a little later, a few times
+            if r.error != nil, unmetered, full || !outbox.pending().isEmpty, retries < Self.retries {
+                retries += 1
+                try? await Task.sleep(for: Self.retryAfter)
+                continue
+            }
+            retries = 0
             guard full, unmetered, r.error == nil, r.held == 0 else { break }
         }
         return await status()
