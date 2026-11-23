@@ -84,13 +84,18 @@ actor HealthSync {
     /// (a background task out of time) stops it after the batch it's on.
     func sync() async -> Status {
         if let running { return await running.value }
-        // leaving the app mid-sync: iOS gives it a little longer to finish the push it's on
-        let time = await BackgroundTime.begin()
-        let task = Task { await self.run() }
+        // marked running before anything awaits: the actor takes other calls at each await, and two
+        // runs would send (and delete) the same batches
+        let task = Task {
+            // leaving the app mid-sync: iOS gives it a little longer to finish the push it's on
+            let time = await BackgroundTime.begin()
+            let r = await self.run()
+            await time.end()
+            return r
+        }
         running = task
         let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         running = nil
-        await time.end()
         // history left, or batches waiting: ask iOS for a long run while charging on Wi-Fi
         HealthBackground.scheduleBackfill(needed: result.backfilling || result.waiting > 0)
         return result

@@ -97,7 +97,8 @@ enum HealthPush {
                 let status = try await post(req, body)
                 switch verdict(status) {
                 case .taken:
-                    try FileManager.default.removeItem(at: file)
+                    // already gone is fine: it was sent, and that's all removing it records
+                    if FileManager.default.fileExists(atPath: file.path) { try FileManager.default.removeItem(at: file) }
                     result.pushed += 1
                 case .refused:
                     try outbox.reject(file)
