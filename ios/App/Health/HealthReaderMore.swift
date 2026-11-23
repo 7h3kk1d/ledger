@@ -124,6 +124,9 @@ extension HealthReader {
             return try await body()
         } catch let e as HKError where e.code == .errorNoData {
             return 0
+        } catch let e as HKError where e.code == .errorDatabaseInaccessible {
+            locked = true // a background run while the phone is locked: read when it's unlocked
+            return 0
         } catch {
             problems.append("\(what): \(error.localizedDescription)")
             return 0

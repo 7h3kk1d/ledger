@@ -67,6 +67,9 @@ targets:
         NSHealthClinicalHealthRecordsShareUsageDescription: Ledger reads the health records your providers share with Health, to send them where you choose.
         # only debug builds write (simulator tests seed sample data); release builds never ask
         NSHealthUpdateUsageDescription: Debug builds write sample health data for tests.
+        # a health backfill goes on while the phone charges on Wi-Fi (HealthBackground)
+        UIBackgroundModes: [processing]
+        BGTaskSchedulerPermittedIdentifiers: [me.bandukwala.Ledger.health-backfill]
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false

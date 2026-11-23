@@ -6,6 +6,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // before returning: a background wake for new health data is delivered to these observers
         HealthBackground.start()
+        HealthBackground.registerTasks()
         return true
     }
 

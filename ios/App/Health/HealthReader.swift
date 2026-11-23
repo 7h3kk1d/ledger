@@ -62,6 +62,8 @@ final class HealthReader {
     let room: () -> Bool
     /// This run stopped early because the outbox was full (a backfill: read more once it's sent).
     private(set) var full = false
+    /// HealthKit was locked away (the phone is locked): nothing could be read, which isn't a failure.
+    var locked = false
 
     /// How much history the first run reads (the Apple Watch's first year).
     static let historyStart = ISO8601DateFormatter().date(from: "2014-09-01T00:00:00Z")!

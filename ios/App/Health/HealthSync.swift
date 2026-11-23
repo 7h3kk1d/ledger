@@ -80,13 +80,19 @@ actor HealthSync {
         if let token { HealthToken.set(token) }
     }
 
-    /// Read and push; a sync already under way is joined, not started again.
+    /// Read and push; a sync already under way is joined, not started again. Cancelling the caller
+    /// (a background task out of time) stops it after the batch it's on.
     func sync() async -> Status {
         if let running { return await running.value }
+        // leaving the app mid-sync: iOS gives it a little longer to finish the push it's on
+        let time = await BackgroundTime.begin()
         let task = Task { await self.run() }
         running = task
-        let result = await task.value
+        let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         running = nil
+        await time.end()
+        // history left, or batches waiting: ask iOS for a long run while charging on Wi-Fi
+        HealthBackground.scheduleBackfill(needed: result.backfilling || result.waiting > 0)
         return result
     }
 
@@ -106,6 +112,7 @@ actor HealthSync {
         var retries = 0
         // on Wi-Fi, a backfill goes on: read a slice, send it, read the next
         for _ in 0 ..< 1000 {
+            if Task.isCancelled { break } // a background task's time ran out; the place is saved
             var full = false
             if HKHealthStore.isHealthDataAvailable() {
                 let device = await MainActor.run {
@@ -123,14 +130,17 @@ actor HealthSync {
                 do {
                     let n = try await reader.run()
                     state = reader.state
-                    state.lastRead = Date()
-                    state.lastReadCount = n
-                    state.lastReadError = reader.problems.isEmpty ? nil : reader.problems.joined(separator: "; ")
+                    if !reader.locked {
+                        state.lastRead = Date()
+                        state.lastReadCount = n
+                        state.lastReadError = reader.problems.isEmpty ? nil : reader.problems.joined(separator: "; ")
+                    }
                 } catch {
                     state = reader.state
                     state.lastReadError = error.localizedDescription
                 }
-                state.backfilling = reader.full
+                // locked: whether history is left is what the last real read found
+                if !reader.locked { state.backfilling = reader.full }
                 full = reader.full
                 state = (try? state.saveKeepingSettings(stateURL)) ?? state
             }
