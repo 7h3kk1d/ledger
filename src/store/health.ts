@@ -5,6 +5,7 @@
 // A no-op in a browser.
 
 import { DeviceHealth } from "../signals/device/deviceHealth";
+import type { AppConfig } from "./config";
 import type { HealthRecords } from "../signals/device/healthkit";
 
 export interface HealthStatus {
@@ -74,10 +75,31 @@ export async function syncHealth(force = false, now = Date.now()): Promise<Healt
   return synced;
 }
 
-/** On launch and each time the app comes back to the foreground. */
-export function startHealth(): () => void {
+/**
+ * The receiver this device should send to: its own setting ("" keeps the data on the phone), else
+ * the served config's healthUrl. Undefined when neither says: what the native side has stays.
+ */
+export function chosenHealthUrl(config: AppConfig, local: AppConfig): string | undefined {
+  return local.healthUrl === "" ? "" : config.healthUrl;
+}
+
+/** Hand the native side `url` when it has another (the token stays as it is). */
+export async function applyHealthUrl(url: string | undefined, h = nativeHealth()): Promise<void> {
+  if (!h || url === undefined) return;
+  const s = await h.status();
+  if ((s.pushUrl ?? "") !== url) await h.setPush({ url });
+}
+
+/**
+ * On launch and each time the app comes back to the foreground. `receiver`: chosenHealthUrl,
+ * applied first, so a new phone sends where the Ledger server says without being told.
+ */
+export function startHealth(receiver?: string): () => void {
   if (!nativeHealth()) return () => {};
-  void syncHealth().catch(() => {});
+  void applyHealthUrl(receiver)
+    .catch(() => {})
+    .then(() => syncHealth())
+    .catch(() => {});
   const onVisible = () => {
     if (document.visibilityState !== "visible") return;
     void device?.refresh();

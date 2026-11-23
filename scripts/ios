@@ -12,14 +12,18 @@
 #   IOS_TEAM         signing team id, for device builds
 #   IOS_DEVICE       the phone's udid (xcrun devicectl list devices), for device builds
 #   IOS_SIM          simulator name (default iPhone 18 Pro)
-#   IOS_CONFIG       JSON to ship as the app's config.json, e.g. a test ledger; default none,
-#                    so the app opens on its welcome screen like a stranger's would
+#   IOS_CONFIG       JSON to ship as the app's config.json: your Ledger server
+#                    ({"server":"https://ledger.example"}, which sets up the rest), or a test
+#                    ledger; default none, so the app opens on its welcome screen like a stranger's
+#                    would. Given on the command line, it wins over .env.local's.
 # Device builds sign from a keychain of their own (see ios-spike's scripts/mac-signing-keychain.sh):
 # the login keychain is locked over SSH.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
+given_config=${IOS_CONFIG-}
 [[ -f "$root/.env.local" ]] && source "$root/.env.local"
+[[ -n "$given_config" ]] && IOS_CONFIG=$given_config
 : "${IOS_BUILD_HOST:?set IOS_BUILD_HOST (user@host of the Mac), e.g. in .env.local}"
 # per checkout (a worktree builds in its own folder on the Mac, not another's)
 remote_dir=${IOS_REMOTE_DIR:-"~/Projects/$(basename "$root")/ios"}

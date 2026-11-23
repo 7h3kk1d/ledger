@@ -3,6 +3,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { ago } from "../model/signals";
 import { checkPushUrl, nativeHealth, syncHealth, type HealthStatus } from "../store/health";
+import { chooseSetting, localSettings, servedConfig, type AppConfig } from "../store/config";
 
 const literal = { autocapitalize: "off", autoCorrect: "off", spellcheck: false } as const;
 
@@ -30,12 +31,14 @@ export function HealthSettings() {
   const [error, setError] = useState<string>();
   const [url, setUrl] = useState("");
   const [token, setToken] = useState("");
+  const [served, setServed] = useState<AppConfig>();
 
   useEffect(() => {
     void plugin?.status().then((s) => {
       setStatus(s);
       setUrl(s.pushUrl ?? "");
     });
+    void servedConfig().then(setServed);
   }, []);
   if (!plugin || !status) return null;
 
@@ -92,6 +95,8 @@ export function HealthSettings() {
               e.preventDefault();
               const problem = checkPushUrl(url);
               if (problem) return setError(problem);
+              // the Ledger server's receiver again follows it; anything else is this phone's own
+              chooseSetting("healthUrl", url.trim(), served);
               void run(async () => {
                 await plugin.setPush({ url: url.trim(), ...(token ? { token: token.trim() } : {}) });
                 setToken("");
@@ -112,6 +117,9 @@ export function HealthSettings() {
               </span>
             </label>
             <small class="hint">{pushLine(status)}</small>
+            {served?.healthUrl && localSettings().healthUrl !== undefined && (
+              <small class="hint">This phone overrides the Ledger server’s receiver ({served.healthUrl}).</small>
+            )}
           </form>
         </>
       )}

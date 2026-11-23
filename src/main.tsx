@@ -3,9 +3,10 @@ import { useEffect, useState } from "preact/hooks";
 import type { DocHandle } from "@automerge/automerge-repo";
 import { DATA_EPOCH, type LedgerDoc, type RootDoc } from "./model/types";
 import { previousDocs } from "./store/root";
-import { rememberLedger } from "./store/config";
+import { localSettings, rememberLedger } from "./store/config";
 import {
   configuredSignalsUrl,
+  currentConfig,
   exportBackup,
   importBackup,
   LoadError,
@@ -22,7 +23,7 @@ import {
 } from "./store/store";
 import { useDoc } from "./store/useDoc";
 import { applyWidgetChanges, setWidgetLedger } from "./store/widget";
-import { healthSignals, startHealth } from "./store/health";
+import { chosenHealthUrl, healthSignals, startHealth } from "./store/health";
 import { startSignals } from "./signals/useSignals";
 import { ago } from "./model/signals";
 import { Habits } from "./ui/habits/Habits";
@@ -126,7 +127,7 @@ function Shell({ root, handle }: Ledger) {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [root, handle]);
   // iOS: read what's new in HealthKit and send it on, on launch and on coming back
-  useEffect(() => startHealth(), []);
+  useEffect(() => startHealth(chosenHealthUrl(currentConfig(), localSettings())), []);
 
   const go = (t: Tab) => {
     history.replaceState(null, "", `#${t}`);

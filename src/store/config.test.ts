@@ -118,7 +118,67 @@ describe("served config in the iOS app", () => {
   });
 });
 
+describe("a Ledger server (the iOS app)", () => {
+  const LEDGER = { rootUrl: "automerge:abc", syncUrl: "/sync", signalsUrl: "/signals", healthUrl: "https://healthkit.example/ingest" };
+  /** The bundled config.json names the server; the server's names the rest. */
+  const hosts = (bundled: unknown, server: unknown) =>
+    (async (u: string) => {
+      const body = u === "/config.json" ? bundled : u === "https://ledger.example/config.json" ? server : undefined;
+      if (body === undefined) throw new TypeError("Load failed");
+      return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+  const offline = (async () => { throw new TypeError("Load failed"); }) as typeof fetch;
+
+  it("one built-in address supplies every endpoint, as full urls on that server", async () => {
+    const store = memory();
+    const served = await servedConfig(store, hosts({ server: "https://ledger.example" }, LEDGER), false);
+    expect(mergeConfig(served, localSettings(store))).toEqual({
+      server: "https://ledger.example",
+      rootUrl: "automerge:abc",
+      syncUrl: "wss://ledger.example/sync",
+      signalsUrl: "https://ledger.example/signals",
+      healthUrl: "https://healthkit.example/ingest",
+    });
+  });
+
+  it("a server's config without syncUrl syncs at its /sync, as a Ledger host always did", async () => {
+    const served = await servedConfig(memory(), hosts({ server: "https://ledger.example/" }, { rootUrl: "automerge:abc" }), false);
+    expect(served?.syncUrl).toBe("wss://ledger.example/sync");
+  });
+
+  it("keeps the server's copy for offline starts, but not across servers", async () => {
+    const store = memory();
+    await servedConfig(store, hosts({ server: "https://ledger.example" }, LEDGER), false);
+    // offline: the bundled file is still there, the server isn't
+    const bundledOnly = hosts({ server: "https://ledger.example" }, undefined);
+    expect((await servedConfig(store, bundledOnly, false))?.signalsUrl).toBe("https://ledger.example/signals");
+    setLocalSetting("server", "https://other.example", store);
+    expect((await servedConfig(store, bundledOnly, false))?.signalsUrl).toBeUndefined();
+  });
+
+  it("the device's own server, or none, overrides the built-in one; its settings override the server", async () => {
+    const store = memory();
+    setLocalSetting("server", "", store);
+    expect(await servedConfig(store, hosts({ server: "https://ledger.example" }, LEDGER), false)).toEqual({ server: "https://ledger.example" });
+    setLocalSetting("server", "https://ledger.example", store);
+    setLocalSetting("signalsUrl", "https://mine.example/signals", store);
+    const served = await servedConfig(store, hosts(undefined, LEDGER), false);
+    expect(mergeConfig(served, localSettings(store)).signalsUrl).toBe("https://mine.example/signals");
+    expect(mergeConfig(served, localSettings(store)).syncUrl).toBe("wss://ledger.example/sync");
+  });
+
+  it("nothing built in and nothing set: the welcome screen, as before", async () => {
+    expect(await servedConfig(memory(), offline, false)).toBeUndefined();
+  });
+});
+
 describe("checking urls", () => {
+  it("takes a server's address", async () => {
+    const { checkUrl } = await import("./config");
+    for (const ok of ["", "https://ledger.example", "https://ledger.example/", "http://localhost:5173"]) expect(checkUrl("server", ok)).toBeUndefined();
+    for (const bad of ["ledger.example", "https://ledger.example/sync", "wss://ledger.example"]) expect(checkUrl("server", bad)).toMatch(/https:/);
+  });
+
   it("takes ws(s) urls, paths and empty for the sync server", async () => {
     const { checkUrl } = await import("./config");
     for (const ok of ["", "/sync", "wss://ledger.example/sync", "ws://localhost:3030"]) expect(checkUrl("syncUrl", ok)).toBeUndefined();

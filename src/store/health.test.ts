@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { checkPushUrl, syncHealth, type HealthStatus } from "./health";
+import { applyHealthUrl, checkPushUrl, chosenHealthUrl, syncHealth, type HealthStatus } from "./health";
 
 const g = globalThis as { Capacitor?: unknown };
 afterEach(() => void delete g.Capacitor);
@@ -37,6 +37,36 @@ describe("health sync", () => {
     expect(await syncHealth(false, t + 30_000)).toBeUndefined();
     expect((await syncHealth(true, t + 30_000))?.lastReadCount).toBe(3);
     expect(calls).toEqual(["status", "sync", "status", "sync"]);
+  });
+});
+
+describe("the served receiver", () => {
+  const plugin = (pushUrl?: string) => {
+    const set: string[] = [];
+    const h = {
+      status: async () => ({ available: true, asked: true, waiting: 0, hasToken: true, pushUrl }) as HealthStatus,
+      setPush: async (o: { url: string }) => (set.push(o.url), {} as HealthStatus),
+    };
+    return { h: h as unknown as Parameters<typeof applyHealthUrl>[1], set };
+  };
+  const SERVED = { healthUrl: "https://healthkit.example/ingest" };
+
+  it("a new phone takes the Ledger server's; one already sending there isn't touched", async () => {
+    const fresh = plugin();
+    await applyHealthUrl(chosenHealthUrl(SERVED, {}), fresh.h);
+    expect(fresh.set).toEqual(["https://healthkit.example/ingest"]);
+    const same = plugin("https://healthkit.example/ingest");
+    await applyHealthUrl(chosenHealthUrl(SERVED, {}), same.h);
+    expect(same.set).toEqual([]);
+  });
+
+  it("the phone's own choice wins, including keeping it on the phone; with neither, what's there stays", async () => {
+    const off = plugin("https://healthkit.example/ingest");
+    await applyHealthUrl(chosenHealthUrl({ ...SERVED, healthUrl: "https://mine.example/ingest" }, { healthUrl: "" }), off.h);
+    expect(off.set).toEqual([""]);
+    const own = plugin("https://older.example/ingest");
+    await applyHealthUrl(chosenHealthUrl({}, {}), own.h);
+    expect(own.set).toEqual([]);
   });
 });
 

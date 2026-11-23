@@ -37,7 +37,7 @@ function useServed() {
 const literal = { autocapitalize: "off", autoCorrect: "off", spellcheck: false, inputMode: "url" } as const;
 
 function UrlSetting(props: {
-  name: "syncUrl" | "signalsUrl";
+  name: "server" | "syncUrl" | "signalsUrl";
   label: string;
   placeholder: string;
   served: AppConfig | undefined;
@@ -69,6 +69,24 @@ function UrlSetting(props: {
         <small class="hint">This device overrides what the app’s host serves ({props.served[props.name] || "none"}).</small>
       )}
     </form>
+  );
+}
+
+/**
+ * The iOS app's one address: its config sets the sync server, the ledger, linked data and the
+ * Health receiver. (A browser gets that from the host it loads Ledger from.)
+ */
+function LedgerServer({ served }: { served: AppConfig | undefined }) {
+  if (!storedInFiles) return null;
+  return (
+    <>
+      <UrlSetting name="server" label="Ledger server" placeholder="https://… (empty: set each below)" served={served} />
+      <small class="hint">
+        {currentConfig().server
+          ? "Sets the sync server, the ledger, linked data and where Health data goes. A setting below overrides it on this device."
+          : "Enter a Ledger server’s address and it sets up the rest."}
+      </small>
+    </>
   );
 }
 
@@ -215,6 +233,7 @@ export function LedgersDialog({ root, onClose }: { root?: DocHandle<RootDoc>; on
   return (
     <Modal title="Sync & ledgers" onClose={onClose}>
       <div class="ledgers">
+        <LedgerServer served={served} />
         <SyncServer served={served} />
         {root && <ThisLedger root={root} />}
         <KnownList current={root?.url} served={served} />
@@ -245,6 +264,7 @@ export function Welcome() {
       <NewLedger />
       <KnownList served={served} />
       <h3>Join one</h3>
+      <LedgerServer served={served} />
       <SyncServer served={served} welcome />
       <JoinLedger served={served} />
     </div>

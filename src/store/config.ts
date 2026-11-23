@@ -1,21 +1,33 @@
-// Where Ledger's data lives: the sync server, the root doc and the signals service. Each comes
-// from this device's settings first, then /config.json (served by whoever hosts the app, cached
-// for offline starts). None is required: without a sync server the ledger is on this device only.
+// Where Ledger's data lives: the sync server, the root doc, the signals service and (iOS) the
+// HealthKit receiver. Each comes from this device's settings first, then the served config: the
+// app host's /config.json, and over it the config of the device's Ledger server, if it has one
+// (the iOS app, whose pages are bundled; the owner's builds have theirs built in). Both are cached
+// for offline starts. One address sets everything up; any key can still be overridden here.
+// None is required: without a sync server the ledger is on this device only.
 // Same semantics as climblog's src/kit/config.ts, for when the two share a kit.
 
 export interface AppConfig {
+  /**
+   * The Ledger server whose /config.json supplies the rest (an https:// origin). In a host's own
+   * config.json it's the default; "" in settings turns it off.
+   */
+  server?: string;
   /** A ws(s):// url or a path on the app's host ("/sync"). */
   syncUrl?: string;
   /** The root doc of the ledger to open. */
   rootUrl?: string;
   /** The signals service (an http(s) url or "/signals"); without it, habits use check-ins only. */
   signalsUrl?: string;
+  /** Where the iOS app sends HealthKit batches (an https:// url); each device keeps its own token. */
+  healthUrl?: string;
 }
 
 export type Store = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 const SETTINGS = "ledger:settings";
 const SERVED = "ledger:config";
+/** The Ledger server's config as last read: { server, config }. */
+const SERVER_COPY = "ledger:server-config";
 /** Ledgers this device has opened (KnownLedger[]), newest first. */
 const KNOWN = "ledger:ledgers";
 
@@ -56,19 +68,65 @@ export function setLocalSetting(key: keyof AppConfig, value: string | undefined,
  * /sync on its own host, so a served config that doesn't mention syncUrl still means that.
  */
 export const withLegacySync = (served: AppConfig | undefined): AppConfig =>
-  served && !("syncUrl" in served) ? { ...served, syncUrl: "/sync" } : (served ?? {});
+  served && "rootUrl" in served && !("syncUrl" in served) ? { ...served, syncUrl: "/sync" } : (served ?? {});
 
-/** /config.json, or the copy from the last time it could be read; undefined if never served. */
 /**
+ * The served config: the host's /config.json, with the Ledger server's over it (its paths made
+ * full urls on that server). Undefined if nothing is served.
+ *
  * `offlineCopy`: whether a host that can't be reached may be standing in for one that serves a
- * config. Not in the iOS app, whose config (if any) is part of the app: there a failed fetch
- * means there is none.
+ * config. Not in the iOS app, whose own config (if any) is part of the app: there a failed fetch
+ * means there is none. A Ledger server that can't be reached always stands in with its last copy.
  */
 export async function servedConfig(
   store = defaultStore(),
   get: typeof fetch = (u, o) => fetch(u, o),
   offlineCopy = true,
 ): Promise<AppConfig | undefined> {
+  const host = await hostConfig(store, get, offlineCopy);
+  const local = localSettings(store).server;
+  const server = local === "" ? undefined : (local ?? host?.server);
+  const remote = server ? await serverConfig(server, store, get) : undefined;
+  if (!host && !remote) return undefined;
+  // `server` stays the host's: what a setting of the device's own overrides
+  return { ...host, ...remote, server: host?.server };
+}
+
+/** A Ledger server's config, its paths resolved on it; the last copy while it can't be reached. */
+async function serverConfig(server: string, store: Store, get: typeof fetch): Promise<AppConfig | undefined> {
+  const base = server.trim().replace(/\/+$/, "");
+  try {
+    const res = await get(`${base}/config.json`, { cache: "no-store" });
+    if (res.ok && res.headers.get("content-type")?.includes("json")) {
+      const config = resolveOn(base, withLegacySync((await res.json()) as AppConfig));
+      write(store, SERVER_COPY, { server: base, config });
+      return config;
+    }
+    store.removeItem(SERVER_COPY);
+    return undefined;
+  } catch {
+    const copy = read<{ server?: string; config?: AppConfig } | null>(store, SERVER_COPY, null);
+    return copy?.server === base ? copy.config : undefined;
+  }
+}
+
+/** A server's config as full urls: its paths ("/sync", "/signals") are on that server. */
+export function resolveOn(server: string, c: AppConfig): AppConfig {
+  const at = (path: string, ws = false) => {
+    const u = new URL(path, `${server}/`);
+    if (ws) u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
+    return u.toString();
+  };
+  const out: AppConfig = { ...c };
+  delete out.server; // a server's config doesn't send the device on to another
+  if (c.syncUrl?.startsWith("/")) out.syncUrl = at(c.syncUrl, true);
+  if (c.signalsUrl?.startsWith("/")) out.signalsUrl = at(c.signalsUrl);
+  if (c.healthUrl?.startsWith("/")) out.healthUrl = at(c.healthUrl);
+  return out;
+}
+
+/** The app host's /config.json, or the copy from the last time it could be read. */
+async function hostConfig(store: Store, get: typeof fetch, offlineCopy: boolean): Promise<AppConfig | undefined> {
   try {
     const res = await get("/config.json", { cache: "no-store" });
     if (res.ok && res.headers.get("content-type")?.includes("json")) {
@@ -94,9 +152,11 @@ export async function servedConfig(
 export function mergeConfig(served: AppConfig | undefined, local: AppConfig): AppConfig {
   const merged = { ...withLegacySync(served), ...local };
   return {
+    server: merged.server || undefined,
     syncUrl: merged.syncUrl || undefined,
     rootUrl: merged.rootUrl || undefined,
     signalsUrl: merged.signalsUrl || undefined,
+    healthUrl: merged.healthUrl || undefined,
   };
 }
 
@@ -151,8 +211,10 @@ export const isDocUrl = (s: string) => /^automerge:[1-9A-HJ-NP-Za-km-z]{20,}$/.t
  * Why `url` can't be used as `key`, or undefined if it can. "" is fine (turns it off). Catches
  * what a phone's autocorrect does to "wss://" ("was://") before it becomes a path on the app's host.
  */
-export function checkUrl(key: "syncUrl" | "signalsUrl", url: string): string | undefined {
+export function checkUrl(key: "server" | "syncUrl" | "signalsUrl", url: string): string | undefined {
   const u = url.trim();
+  if (key === "server")
+    return !u || /^https?:\/\/[^\s/]+\/?$/.test(u) ? undefined : "Use the server’s address, like https://ledger.example.";
   if (!u || /^\/[^\s]*$/.test(u)) return undefined;
   if (key === "syncUrl")
     return /^wss?:\/\/[^\s/]+/.test(u) ? undefined : "Use wss://host/path (ws:// for a local server), or a path on this app’s host like /sync.";
