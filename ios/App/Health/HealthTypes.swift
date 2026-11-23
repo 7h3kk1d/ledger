@@ -17,7 +17,8 @@ enum HealthTypes {
     enum Stat { case sum, range }
 
     /// Dense types, also as hourly statistics merged across devices (the true totals).
-    static let hourly: [(id: HKQuantityTypeIdentifier, name: String, unit: HKUnit, label: String, stat: Stat)] =
+    typealias Hourly = (id: HKQuantityTypeIdentifier, name: String, unit: HKUnit, label: String, stat: Stat)
+    static let hourly: [Hourly] =
         HealthCatalog.quantities.compactMap { q in
             guard let h = q.hourly, let t = known(q) else { return nil }
             return (t.id, t.name, t.unit, t.label, h == .sum ? Stat.sum : .range)

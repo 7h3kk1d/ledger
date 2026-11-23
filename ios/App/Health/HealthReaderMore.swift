@@ -117,10 +117,13 @@ extension HealthReader {
         return n
     }
 
-    /// Runs one kind; a failure is noted (HealthState.lastReadError) and the next kind goes on.
+    /// Runs one kind; "no data" is nothing new, any other failure is noted (HealthState.lastReadError)
+    /// and the next kind goes on.
     func soft(_ what: String, _ body: () async throws -> Int) async -> Int {
         do {
             return try await body()
+        } catch let e as HKError where e.code == .errorNoData {
+            return 0
         } catch {
             problems.append("\(what): \(error.localizedDescription)")
             return 0

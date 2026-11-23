@@ -70,7 +70,8 @@ final class HealthReader {
     func run(now: Date = Date()) async throws -> Int {
         var n = 0
         // "workouts.v2": read again from the start when series, routes and statistics were added
-        n += try await anchored(key: "workouts.v2", predicate: .workout(), limit: 10) { added, deleted in
+        // each kind on its own: one that fails is named in lastReadError, and the rest go on
+        n += await soft("workouts") { try await self.anchored(key: "workouts.v2", predicate: .workout(), limit: 10) { added, deleted in
             var b = self.newBatch()
             b.workouts = added.map(Self.workout)
             var series: [HealthWorkoutSeries] = [], routes: [HealthWorkoutRoute] = []
@@ -83,8 +84,8 @@ final class HealthReader {
             b.workout_routes = routes.isEmpty ? nil : routes
             b.deleted = deleted.isEmpty ? nil : deleted.map { HealthDeleted(kind: "workout", uuid: $0.uuid.uuidString.lowercased()) }
             return b
-        }
-        n += try await anchored(key: "sleep", predicate: .categorySample(type: HKCategoryType(.sleepAnalysis)), limit: 5000) { added, deleted in
+        } }
+        n += await soft("sleep") { try await self.anchored(key: "sleep", predicate: .categorySample(type: HKCategoryType(.sleepAnalysis)), limit: 5000) { added, deleted in
             var b = self.newBatch()
             b.sleep = added.map { s in
                 HealthSleep(uuid: s.uuid.uuidString.lowercased(), start: HealthTime.string(s.startDate), end: HealthTime.string(s.endDate),
@@ -93,9 +94,9 @@ final class HealthReader {
             }
             b.deleted = deleted.isEmpty ? nil : deleted.map { HealthDeleted(kind: "sleep", uuid: $0.uuid.uuidString.lowercased()) }
             return b
-        }
+        } }
         for t in HealthTypes.sparse {
-            n += try await anchored(key: t.name, predicate: .quantitySample(type: HKQuantityType(t.id)), limit: 5000) { added, deleted in
+            n += await soft(t.name) { try await self.anchored(key: t.name, predicate: .quantitySample(type: HKQuantityType(t.id)), limit: 5000) { added, deleted in
                 var b = self.newBatch()
                 b.samples = added.compactMap { s in
                     guard s.quantity.is(compatibleWith: t.unit) else { return nil }
@@ -105,10 +106,12 @@ final class HealthReader {
                 }
                 b.deleted = deleted.isEmpty ? nil : deleted.map { HealthDeleted(kind: "sample", uuid: $0.uuid.uuidString.lowercased()) }
                 return b
-            }
+            } }
         }
-        n += try await hourly(now: now)
-        n += try await activity(now: now)
+        for t in HealthTypes.hourly {
+            n += await soft("\(t.name) by the hour") { try await self.hourly(t, now: now) }
+        }
+        n += await soft("rings") { try await self.activity(now: now) }
         n += await runMore(now: now)
         return n
     }
@@ -165,14 +168,14 @@ final class HealthReader {
     }
 
     /// Hourly statistics, 30 days per batch; the last two days are read again next time.
-    private func hourly(now: Date) async throws -> Int {
+    private func hourly(_ t: HealthTypes.Hourly, now: Date) async throws -> Int {
         var total = 0
         let window: TimeInterval = 30 * 86400
-        for t in HealthTypes.hourly {
+        do {
             let type = HKQuantityType(t.id)
             var start = state.hourlyFrom[t.name]
             if start == nil { start = try await earliest(type) } // first run: from the oldest sample
-            guard var from = start else { continue }
+            guard var from = start else { return 0 }
             from = hourFloor(from)
             let options: HKStatisticsOptions = t.stat == .sum ? .cumulativeSum : [.discreteMin, .discreteAverage, .discreteMax]
             while from < now {
