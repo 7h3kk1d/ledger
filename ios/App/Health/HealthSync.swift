@@ -58,6 +58,7 @@ actor HealthSync {
         var s = HealthState.load(stateURL)
         s.connected = true
         try s.save(stateURL)
+        await HealthBackground.start()
         // each on a sheet of its own; declining one leaves the rest syncing. Health records need the
         // health-records entitlement (project.yml): asking without it would raise, not fail
         let clinical = Set(HealthTypes.clinical.compactMap { HKClinicalType.clinicalType(forIdentifier: $0.id) as HKObjectType? })

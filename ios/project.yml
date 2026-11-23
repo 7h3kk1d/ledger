@@ -54,8 +54,9 @@ targets:
       properties:
         # shared with the widget: Ledger's data files (FileStore), widget.json, widget-changes/
         com.apple.security.application-groups: [group.me.bandukwala.Ledger]
-        # reads HealthKit (App/Health/) to push it to a receiver; background delivery comes later
+        # reads HealthKit (App/Health/) to push it to a receiver, woken for new data (HealthBackground)
         com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.background-delivery: true
         # health-records: clinical records from providers linked in Health (asked on their own sheet)
         com.apple.developer.healthkit.access: [health-records]
     info:
